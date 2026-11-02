@@ -2,13 +2,16 @@
 <html lang="en">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://telegram.org; connect-src https://*.trycloudflare.com; media-src blob:; style-src 'self'; img-src 'self' data:">
+  <meta name="referrer" content="no-referrer">
   <title>Audio Review</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
-  <main id="app"><p class="empty">Loading…</p></main>
+  <main id="app"><div class="skeleton" aria-busy="true" aria-label="Loading"><span></span><span></span><span></span></div></main>
+  <div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
   <script src="app.js"></script>
 </body>
 </html>

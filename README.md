@@ -19,7 +19,15 @@ which system scores better.
 2. BotFather: `/newapp` → pick the bot → short name `review` → URL
    `https://<github-user>.github.io/audio-review-miniapp/`.
 
+## Review flow
+1. The app opens on the next conversation you haven't reviewed (progress bar on top).
+2. Play the recording (1× / 1.5×, tap the bar to jump).
+3. Step 1: is the **Audio pipeline** text correct? 👍 Correct / 👎 Wrong (pick reasons, no typing needed).
+4. Step 2: same for **Gemma 4**. "Compare with …" shows both side by side.
+5. "Saved ✓ · Undo" for 5 s, then the next conversation opens. "Skip — can't hear it" moves it to the end.
+Team votes stay hidden until you vote. Votes save in the background and retry if the network drops.
+
 ## Files
-- `index.html` — loads Telegram's `telegram-web-app.js`, `app.js`, `style.css`.
-- `app.js` — list (To review / My reviews / All, date filter), conversation view, votes.
-- `style.css` — follows the Telegram theme colours; two columns from 600 px wide.
+- `index.html` — CSP, loads Telegram's `telegram-web-app.js`, `app.js`, `style.css`.
+- `app.js` — one-at-a-time review, prefetch of the next conversation, background saves, list view.
+- `style.css` — Apple HIG tokens (system font, 44 pt+ targets, capsule buttons) over Telegram theme colours.
