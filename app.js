@@ -500,9 +500,14 @@ async function start() {
   target ? showReview(target.id) : queue().length ? showReview(queue()[0].id) : showDone();
 }
 
+const DESKTOP = ["tdesktop", "macos", "web", "weba", "webk", "unigram"];
 if (tg) {
   tg.ready();
   tg.expand();
+  // laptops / PCs: open full screen so the list + A/B/C columns fit; phones keep the normal sheet
+  if (DESKTOP.includes(tg.platform) && tg.isVersionAtLeast && tg.isVersionAtLeast("8.0") && tg.requestFullscreen) {
+    try { tg.requestFullscreen(); } catch {}
+  }
   if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
   tg.BackButton.onClick(() => (queue().length ? showReview(queue()[0].id) : showDone()));
 }

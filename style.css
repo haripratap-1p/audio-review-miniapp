@@ -22,6 +22,9 @@
 * { box-sizing: border-box; }
 html { -webkit-text-size-adjust: 100%; color-scheme: light dark; }
 body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.45 var(--font); }
+/* full screen on desktop: keep clear of Telegram's own close/menu buttons at the top */
+:root { --top-inset: calc(var(--tg-safe-area-inset-top, 0px) + var(--tg-content-safe-area-inset-top, 0px)); }
+body { padding-top: var(--top-inset); }
 main { max-width: 720px; margin: 0 auto; padding: 0 var(--s4) calc(132px + env(safe-area-inset-bottom)); }
 h1 { font-size: 20px; font-weight: 600; margin: 0; }
 h2 { font-size: 17px; font-weight: 600; margin: 0; }
@@ -141,7 +144,7 @@ input { width: 100%; min-height: 44px; font: inherit; font-size: 16px; padding: 
 
 /* PC / laptop (>= 1000 px): list on the left, both results side by side */
 main.wide { max-width: 1440px; padding: 0 var(--s5); }
-.desk { display: grid; grid-template-columns: 340px 1fr; gap: var(--s5); height: 100vh; }
+.desk { display: grid; grid-template-columns: 340px 1fr; gap: var(--s5); height: calc(100vh - var(--top-inset)); }
 .side { overflow-y: auto; padding: var(--s4) var(--s2) var(--s4) 0; border-right: 1px solid var(--rule); }
 .side h1 { margin-bottom: var(--s2); }
 .side .list button[aria-current="true"] { background: var(--accent-tint); box-shadow: inset 3px 0 0 var(--accent); }
