@@ -15,7 +15,7 @@ const PAPER = { light: "#F4F7F6", dark: "#0E1514" };  // same values as --paper 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const state = {
-  items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all",
+  items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all", kind: "call",
   skipped: [], pending: [], details: new Map(), audio: new Map(),
 };
 
@@ -114,7 +114,7 @@ async function loadList() {
 // a conversation is still open for me until every available result has my verdict
 const isDone = (i) => i.mine.pipeline && (i.mine.gemma || !i.ready);
 function queue() {
-  const open = state.items.filter((i) => !isDone(i));
+  const open = state.items.filter((i) => i.kind === state.kind && !isDone(i));
   return [...open.filter((i) => !state.skipped.includes(i.id)), ...open.filter((i) => state.skipped.includes(i.id))];
 }
 
@@ -169,15 +169,22 @@ async function flush() {
 
 // ---------- shared pieces ----------
 function topbar(active) {
-  const waiting = state.total - state.ready;
+  const mine = state.items.filter((i) => i.kind === state.kind);
+  const waiting = mine.filter((i) => !i.ready).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
+  const openOf = (k) => state.items.filter((i) => i.kind === k && !isDone(i)).length;
+  const kindTab = (k, text) => h("button", {
+    class: "kind-tab", role: "tab", "aria-selected": String(state.kind === k),
+    onclick: () => { state.kind = k; active === "all" ? showList() : queue().length ? showReview(queue()[0].id) : showDone(); },
+  }, text, h("span", { class: "count" }, openOf(k)));
   return h("header", { class: "top" },
     h("div", { class: "row between" },
       h("h1", {}, "Review"),
       h("div", { class: "seg", role: "group", "aria-label": "View" },
         tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All conversations", showList))),
-    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(state.teamPipeline, "checked by team"), stat(waiting, "waiting for Gemma")));
+    h("div", { class: "kind-tabs", role: "tablist", "aria-label": "Recording type" }, kindTab("call", "Calls"), kindTab("in-store", "In-store")),
+    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"), stat(waiting, "waiting for Gemma")));
 }
 
 const badge = (v, text) => h("span", { class: `badge ${v || "todo"}` }, v === "ok" ? icon("check") : v === "bad" ? icon("cross") : null, text);
@@ -254,6 +261,7 @@ async function showReview(id, startSys) {
   const q = queue();
   const row = state.items.find((i) => i.id === id) || q[0];
   if (!row) return showDone();
+  state.kind = row.kind;
   if (tg) tg.BackButton.hide();
   $app.replaceChildren(topbar("queue"), skeleton());
   let d;
@@ -330,15 +338,15 @@ function showDone() {
 function showList() {
   hideToast();
   if (tg) tg.BackButton.show();
-  const filters = [["all", "All"], ["call", "Calls"], ["in-store", "In-store"], ["todo", "To review"]];
-  const keep = (i) => state.filter === "all" || (state.filter === "todo" ? !isDone(i) : i.kind === state.filter);
+  const filters = [["all", "All"], ["todo", "To review"]];
+  const keep = (i) => i.kind === state.kind && (state.filter === "all" || !isDone(i));
   const days = new Map();
   for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
   const rows = [...days].map(([date, list]) => h("section", { class: "day" },
     h("h2", {}, dayLabel(date)),
     h("ul", { class: "list" }, list.map((i) => h("li", {}, h("button", { onclick: () => showReview(i.id) },
       h("span", { class: "who-line" }, i.who),
-      h("span", { class: "note" }, `${i.kind === "call" ? "Call" : "In-store"}, ${i.time}${i.duration ? `, ${i.duration}` : ""}`),
+      h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
       h("span", { class: "marks" },
         h("span", {}, "Pipeline ", badge(i.mine.pipeline, verdictText(i.mine.pipeline))),
         h("span", {}, "Gemma 4 ", i.ready ? badge(i.mine.gemma, verdictText(i.mine.gemma)) : h("span", { class: "badge todo" }, "Pending")))))))));

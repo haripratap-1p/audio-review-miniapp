@@ -130,3 +130,11 @@ input { width: 100%; min-height: 44px; font: inherit; font-size: 16px; padding: 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }
+
+/* calls / in-store split */
+.kind-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s2); margin-top: var(--s3); }
+.kind-tab { min-height: 44px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); font-weight: 600;
+  display: flex; align-items: center; justify-content: center; gap: var(--s2); }
+.kind-tab[aria-selected="true"] { border-color: var(--teal); color: var(--teal); background: var(--teal-tint); }
+.count { font-size: 13px; font-variant-numeric: tabular-nums; padding: 0 var(--s2); border-radius: 10px; background: var(--paper); color: var(--quiet); }
+.kind-tab[aria-selected="true"] .count { background: var(--teal); color: var(--on-solid); }
