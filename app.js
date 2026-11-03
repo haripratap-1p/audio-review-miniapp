@@ -173,25 +173,37 @@ function topbar(active) {
   const waiting = mine.filter((i) => !i.ready).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
-  const openOf = (k) => state.items.filter((i) => i.kind === k && !isDone(i)).length;
-  const kindTab = (k, text) => h("button", {
-    class: "kind-tab", role: "tab", "aria-selected": String(state.kind === k),
-    onclick: () => { state.kind = k; active === "all" ? showList() : queue().length ? showReview(queue()[0].id) : showDone(); },
-  }, text, h("span", { class: "count" }, openOf(k)));
+
   return h("header", { class: "top" },
     h("div", { class: "row between" },
       h("h1", {}, "Review"),
       h("div", { class: "seg", role: "group", "aria-label": "View" },
         tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All conversations", showList))),
-    h("div", { class: "kind-tabs", role: "tablist", "aria-label": "Recording type" }, kindTab("call", "Calls"), kindTab("in-store", "In-store")),
+    kindTabs(active),
     h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"), stat(waiting, "waiting for Gemma")));
+}
+
+function kindTabs(active) {
+  const openOf = (k) => state.items.filter((i) => i.kind === k && !isDone(i)).length;
+  const kindTab = (k, text) => h("button", {
+    class: "kind-tab", role: "tab", "aria-selected": String(state.kind === k),
+    onclick: () => { state.kind = k; active === "all" ? showList() : queue().length ? showReview(queue()[0].id) : showDone(); },
+  }, text, h("span", { class: "count" }, openOf(k)));
+  return h("div", { class: "kind-tabs", role: "tablist", "aria-label": "Recording type" }, kindTab("call", "Calls"), kindTab("in-store", "In-store"));
 }
 
 const badge = (v, text) => h("span", { class: `badge ${v || "todo"}` }, v === "ok" ? icon("check") : v === "bad" ? icon("cross") : null, text);
 const verdictText = (v) => (v === "ok" ? "Correct" : v === "bad" ? "Wrong" : "To review");
 
+// only one recording plays at a time; any screen change stops it
+function stopAudio() {
+  if (player.active) player.active.pause();
+}
+
 function player(id) {
+  stopAudio();
   const audio = new Audio();
+  player.active = audio;
   const btn = h("button", { class: "play", disabled: true, "aria-label": "Play recording" }, icon("play"));
   const speed = h("button", { class: "chip", disabled: true, "aria-label": "Playback speed" }, "1×");
   const fill = h("span");
@@ -256,12 +268,18 @@ function reasonSheet(onSave) {
 }
 
 // ---------- review screen ----------
+const wide = () => matchMedia("(min-width: 1000px)").matches;
+
 async function showReview(id, startSys) {
+  if (wide()) return showDesk(id);
+  stopAudio();
   hideToast();
   const q = queue();
   const row = state.items.find((i) => i.id === id) || q[0];
   if (!row) return showDone();
   state.kind = row.kind;
+  state.current = row.id;
+  $app.classList.remove("wide");
   if (tg) tg.BackButton.hide();
   $app.replaceChildren(topbar("queue"), skeleton());
   let d;
@@ -325,6 +343,8 @@ async function showReview(id, startSys) {
 }
 
 function showDone() {
+  if (wide()) return showDesk();
+  stopAudio();
   if (tg) tg.BackButton.hide();
   $app.replaceChildren(topbar("queue"), h("section", { class: "message" },
     h("h1", {}, "You're up to date"),
@@ -336,6 +356,8 @@ function showDone() {
 
 // ---------- all conversations ----------
 function showList() {
+  if (wide()) return showDesk(state.current);
+  stopAudio();
   hideToast();
   if (tg) tg.BackButton.show();
   const filters = [["all", "All"], ["todo", "To review"]];
@@ -355,6 +377,87 @@ function showList() {
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showList(); } }, text))),
     ...(rows.length ? rows : [h("p", { class: "note pad" }, "No conversations match this filter.")]));
 }
+
+// ---------- PC / laptop: list on the left, both results side by side ----------
+function sidebarList(selectedId) {
+  const filters = [["all", "All"], ["todo", "To review"]];
+  const keep = (i) => i.kind === state.kind && (state.filter === "all" || !isDone(i));
+  const days = new Map();
+  for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
+  return h("aside", { class: "side" },
+    h("h1", {}, "Review"),
+    kindTabs("queue"),
+    h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
+      filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showDesk(selectedId); } }, text))),
+    days.size ? [...days].map(([date, list]) => h("section", { class: "day" },
+      h("h2", {}, dayLabel(date)),
+      h("ul", { class: "list" }, list.map((i) => h("li", {}, h("button", { "aria-current": String(i.id === selectedId), onclick: () => showDesk(i.id) },
+        h("span", { class: "who-line" }, i.who),
+        h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
+        h("span", { class: "marks" },
+          badge(i.mine.pipeline, `Pipeline ${verdictText(i.mine.pipeline).toLowerCase()}`),
+          i.ready ? badge(i.mine.gemma, `Gemma ${verdictText(i.mine.gemma).toLowerCase()}`) : h("span", { class: "badge todo" }, "Gemma pending"))))))))
+      : h("p", { class: "note pad" }, "Nothing here for this filter."));
+}
+
+async function showDesk(id) {
+  stopAudio();
+  hideToast();
+  if (tg) tg.BackButton.hide();
+  $app.classList.add("wide");
+  const row = state.items.find((i) => i.id === id) || queue()[0] || state.items.find((i) => i.kind === state.kind);
+  if (row) state.kind = row.kind;
+  state.current = row?.id;
+  const main = h("div", { class: "desk-main" });
+  $app.replaceChildren(h("div", { class: "desk" }, sidebarList(row?.id), main));
+  if (!row) return main.replaceChildren(h("section", { class: "message" }, h("h1", {}, "You're up to date"),
+    h("p", { class: "note" }, "New conversations appear here as they're processed."), h("button", { class: "btn primary", onclick: start }, "Refresh")));
+  main.replaceChildren(skeleton());
+  let d;
+  try {
+    d = await getDetail(row.id);
+  } catch (e) {
+    return showError(e, () => showDesk(row.id));
+  }
+  if (state.current !== row.id) return;  // user clicked another row meanwhile
+  prefetch(queue().find((i) => i.id !== row.id)?.id);
+  const audio = player(row.id);
+  const done = [];
+  const column = (sys) => {
+    const pending = sys === "gemma" && !row.ready;
+    return h("section", { class: "col" },
+      h("div", { class: "row between col-head" }, h("h2", {}, LABEL[sys]), row.mine[sys] ? badge(row.mine[sys], verdictText(row.mine[sys])) : null),
+      h("div", { class: "col-body" }, transcript(d[sys], "Gemma 4 hasn't processed this conversation yet.")),
+      pending ? null : h("div", { class: "row col-verdict" },
+        h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote(sys, "bad", note)) }, icon("cross"), "Wrong"),
+        h("button", { class: "btn ok solid", onclick: () => vote(sys, "ok", "") }, icon("check"), "Correct")));
+  };
+  const cols = h("div", { class: "cols" });
+  const paint = () => cols.replaceChildren(column("pipeline"), column("gemma"));
+  const vote = (sys, v, note) => {
+    if (!row.mine[sys]) done.push(sys);
+    saveVote(row.id, sys, v, note);
+    haptic(v === "ok" ? "success" : "warning");
+    if (!isDone(row)) return paint();
+    audio.stop();
+    if (done.length) state.myToday += 1;
+    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); showDesk(row.id); } });
+    showDesk(queue()[0]?.id || row.id);
+  };
+  paint();
+  main.replaceChildren(
+    h("section", { class: "who" },
+      h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
+      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, `${fmtDate(row.date)}, ${row.time}`), row.duration ? h("span", {}, row.duration) : null)),
+    audio, cols);
+}
+
+// switching between phone and PC widths re-renders the current view
+matchMedia("(min-width: 1000px)").addEventListener("change", (e) => {
+  if (!state.items.length) return;
+  if (!e.matches) { $app.classList.remove("wide"); return state.current ? showReview(state.current) : showDone(); }
+  showDesk(state.current);
+});
 
 // ---------- start ----------
 async function start() {

@@ -138,3 +138,16 @@ input { width: 100%; min-height: 44px; font: inherit; font-size: 16px; padding: 
 .kind-tab[aria-selected="true"] { border-color: var(--teal); color: var(--teal); background: var(--teal-tint); }
 .count { font-size: 13px; font-variant-numeric: tabular-nums; padding: 0 var(--s2); border-radius: 10px; background: var(--paper); color: var(--quiet); }
 .kind-tab[aria-selected="true"] .count { background: var(--teal); color: var(--on-solid); }
+
+/* PC / laptop (>= 1000 px): list on the left, both results side by side */
+main.wide { max-width: 1440px; padding: 0 var(--s5); }
+.desk { display: grid; grid-template-columns: 340px 1fr; gap: var(--s5); height: 100vh; }
+.side { overflow-y: auto; padding: var(--s4) var(--s2) var(--s4) 0; border-right: 1px solid var(--rule); }
+.side h1 { margin-bottom: var(--s2); }
+.side .list button[aria-current="true"] { background: var(--teal-tint); box-shadow: inset 3px 0 0 var(--teal); }
+.desk-main { overflow-y: auto; padding: var(--s4) 0; }
+.cols { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); align-items: start; }
+.col { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; display: grid; }
+.col-head { padding: var(--s3) var(--s4); border-bottom: 1px solid var(--rule); }
+.col-body { padding: var(--s3) var(--s4); }
+.col-verdict { padding: var(--s3) var(--s4); border-top: 1px solid var(--rule); }
