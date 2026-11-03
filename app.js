@@ -105,6 +105,12 @@ function showError(e, retry) {
 async function loadList() {
   const data = await (await api("/api/conversations")).json();
   state.items = data.items;
+  // in-store clips have no caller: number them per day, first clip of the day = Conversation 1 (list stays newest first)
+  const perDay = new Map();
+  for (const i of [...state.items].reverse().filter((x) => x.kind === "in-store")) {
+    perDay.set(i.date, (perDay.get(i.date) || 0) + 1);
+    i.who = `Conversation ${perDay.get(i.date)}`;
+  }
   state.total = data.total ?? data.items.length;
   state.ready = data.ready;
   state.teamPipeline = data.team_pipeline ?? 0;
