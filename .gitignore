@@ -1,0 +1,16 @@
+__pycache__/
+*.pyc
+.venv/
+*.db
+*.env
+*.log
+live_results/
+.ruff_cache/
+.pytest_cache/
+# server state, in case REVIEW_HOME ever points inside the checkout
+roles.json
+review_*.json
+review_eod_sent.txt
+workers_state.json
+telegram_*.json
+*.pid

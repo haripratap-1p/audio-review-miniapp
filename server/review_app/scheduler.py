@@ -1,0 +1,55 @@
+import time
+from datetime import datetime
+
+from . import launcher, reports, store, workers
+from .config import EOD_HOUR, IST, get_settings
+
+REPIN_STEPS = ("pin_launcher", "pin_cost_launcher", "ensure_card")
+
+
+def run_steps(names: tuple) -> None:
+    for name in names:
+        try:
+            getattr(launcher, name)()
+        except Exception as e:
+            print(f"{name} failed: {e}", flush=True)
+
+
+def tick(last_sub: str) -> str:
+    # one scheduler pass; returns the tunnel host the launchers now point at
+    sub = launcher.tunnel_sub()
+    if sub and sub != last_sub:
+        run_steps(REPIN_STEPS)
+        last_sub = sub
+    try:
+        store.sync_db()
+    except Exception as e:
+        print(f"db sync failed: {e}", flush=True)
+    try:
+        workers.check_workers()
+    except Exception as e:
+        print(f"worker check failed: {e}", flush=True)
+    sent = get_settings().home / "review_eod_sent.txt"
+    now = datetime.now(IST)
+    today = now.strftime("%Y-%m-%d")
+    if now.hour >= EOD_HOUR and (sent.read_text().strip() if sent.exists() else "") != today:
+        try:
+            reports.post_eod(dry=False)
+            sent.write_text(today)
+            print(f"EOD posted {today}", flush=True)
+        except Exception as e:
+            print(f"EOD failed: {e}", flush=True)
+    return last_sub
+
+
+def scheduler() -> None:
+    # keeps the pinned launcher pointing at the current tunnel and posts the EOD once a day at 19:00 IST
+    for _ in range(12):  # tunnel log may appear a few seconds after start
+        if launcher.tunnel_sub():
+            break
+        time.sleep(5)
+    last_sub = launcher.tunnel_sub()
+    run_steps(("ensure_owner", *REPIN_STEPS))
+    while True:
+        last_sub = tick(last_sub)
+        time.sleep(60)
