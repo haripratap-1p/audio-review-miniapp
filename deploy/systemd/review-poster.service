@@ -1,0 +1,15 @@
+[Unit]
+Description=Review app: posts each new conversation to the client Telegram group
+After=review-api.service network-online.target
+
+[Service]
+WorkingDirectory=%h/Documents/hp_workspace/audio-review-miniapp/server
+EnvironmentFile=%h/.config/review-app/review.env
+ExecStart=/usr/bin/python3 -u -m review_app.poster
+StandardOutput=append:%h/SanjAI/audio-inference/telegram_poster.log
+StandardError=append:%h/SanjAI/audio-inference/telegram_poster.log
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

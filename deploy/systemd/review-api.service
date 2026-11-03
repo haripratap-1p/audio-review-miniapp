@@ -1,0 +1,16 @@
+[Unit]
+Description=Review app: API for the Telegram Mini App, launchers and 7 PM summary
+After=review-tunnel.service network-online.target
+Wants=review-tunnel.service
+
+[Service]
+WorkingDirectory=%h/Documents/hp_workspace/audio-review-miniapp/server
+EnvironmentFile=%h/.config/review-app/review.env
+ExecStart=/usr/bin/python3 -u -m review_app serve
+StandardOutput=append:%h/SanjAI/audio-inference/review_api.log
+StandardError=append:%h/SanjAI/audio-inference/review_api.log
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target

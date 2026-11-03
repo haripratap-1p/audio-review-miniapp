@@ -1,0 +1,14 @@
+[Unit]
+Description=Review app: Cloudflare quick tunnel to the API on 127.0.0.1:8787
+After=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/cloudflared tunnel --no-autoupdate --url http://127.0.0.1:8787
+# the API and poster read the current tunnel URL from this log
+StandardOutput=append:%h/SanjAI/audio-inference/review_tunnel.log
+StandardError=append:%h/SanjAI/audio-inference/review_tunnel.log
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
