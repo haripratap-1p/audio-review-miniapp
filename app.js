@@ -1,4 +1,4 @@
-// Telegram Mini App: store staff check one conversation at a time, comparing Options A, B and C (blind).
+// Telegram Mini App: review store conversations. General users see our audio pipeline; the Tech team also sees Gemma and Gemini.
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || params.get("tgWebAppStartParam") || "";
@@ -8,8 +8,10 @@ const API = /^[a-z0-9-]+$/.test(sub) ? `https://${sub}.trycloudflare.com` : "";
 const INIT = (tg && tg.initData) || "";
 const $app = document.getElementById("app");
 const $toast = document.getElementById("toast");
-const SYSTEMS = ["pipeline", "gemma", "gemini"];
-const LABEL = { pipeline: "Option A", gemma: "Option B", gemini: "Option C" };
+// which systems and names this user may see come from the server (role-based)
+let SYSTEMS = ["pipeline"];
+let LABEL = { pipeline: "Audio pipeline" };
+const SHORT = { pipeline: "Pipeline", gemma: "Gemma", gemini: "Gemini" };
 const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing parts", "Other"];
 const PAPER = { light: "#F5F5F7", dark: "#0E0E10" };  // same values as --paper in style.css
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -100,7 +102,7 @@ const todayIst = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0
 const dayLabel = (d) => (d === todayIst() ? "Today" : d === new Date(Date.now() + 5.5 * 3600e3 - 864e5).toISOString().slice(0, 10) ? "Yesterday" : fmtDate(d));
 
 function toast(text, action) {
-  $toast.replaceChildren(h("span", {}, text), action ? h("button", { class: "link", onclick: () => { hideToast(); action.run(); } }, action.label) : null);
+  $toast.replaceChildren(...[h("span", {}, text), action && h("button", { class: "link", onclick: () => { hideToast(); action.run(); } }, action.label)].filter(Boolean));
   $toast.hidden = false;
   clearTimeout(toast.t);
   toast.t = setTimeout(hideToast, action ? 5000 : 2500);
@@ -126,6 +128,10 @@ function showError(e, retry) {
 async function loadList() {
   const data = await (await api("/api/conversations")).json();
   state.items = data.items;
+  state.role = data.role || "general";
+  state.isOwner = !!data.is_owner;
+  LABEL = data.labels || { pipeline: "Audio pipeline" };
+  SYSTEMS = Object.keys(LABEL);
   // in-store clips have no caller: number them per day, first clip of the day = Conversation 1 (list stays newest first)
   const perDay = new Map();
   for (const i of [...state.items].reverse().filter((x) => x.kind === "in-store")) {
@@ -199,17 +205,20 @@ async function flush() {
 // ---------- shared pieces ----------
 function topbar(active) {
   const mine = state.items.filter((i) => i.kind === state.kind);
-  const waiting = mine.filter((i) => !has(i, "gemma") || !has(i, "gemini")).length;
+  const waiting = mine.filter((i) => SYSTEMS.some((s) => !has(i, s))).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
 
+  const page = ["benchmark", "team"].includes(active);
   return h("header", { class: "top" },
-    h("div", { class: "row between" },
-      h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton()),
-      h("div", { class: "seg", role: "group", "aria-label": "View" },
-        tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All conversations", showList))),
-    kindTabs(active),
-    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"), stat(waiting, "waiting for B or C")));
+    h("div", { class: "row between" }, h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton())),
+    h("div", { class: "seg nav", role: "group", "aria-label": "View" },
+      tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All", showList),
+      state.role === "tech" ? tab("benchmark", "Benchmark", showBenchmark) : null,
+      state.isOwner ? tab("team", "Team", showTeam) : null),
+    page ? null : kindTabs(active),
+    page ? null : h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"),
+      SYSTEMS.length > 1 ? stat(waiting, "waiting for Gemma or Gemini") : null));
 }
 
 function kindTabs(active) {
@@ -308,7 +317,7 @@ async function showReview(id, startSys) {
   if (!row) return showDone();
   state.kind = row.kind;
   state.current = row.id;
-  $app.classList.remove("wide");
+  $app.classList.remove("wide", "page");
   if (tg) tg.BackButton.hide();
   $app.replaceChildren(topbar("queue"), skeleton());
   let d;
@@ -333,7 +342,7 @@ async function showReview(id, startSys) {
     panel.replaceChildren(transcript(d[cur], `${LABEL[cur]} isn't ready for this conversation yet. It will come back to your queue when it is.`));
     verdict.replaceChildren(
       h("div", { class: "row between" },
-        h("p", { class: "ask" }, notReady ? "Nothing to check yet" : `Is ${LABEL[cur]} correct?`),
+        h("p", { class: "ask" }, notReady ? "Nothing to check yet" : `Is the ${LABEL[cur]} result correct?`),
         h("button", { class: "link", onclick: skip }, "Skip")),
       notReady ? null : h("div", { class: "row" },
         h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote("bad", note)) }, icon("cross"), "Wrong"),
@@ -386,6 +395,7 @@ function showDone() {
 // ---------- all conversations ----------
 function showList() {
   if (wide()) return showDesk(state.current);
+  $app.classList.remove("page");
   stopAudio();
   hideToast();
   if (tg) tg.BackButton.show();
@@ -399,7 +409,7 @@ function showList() {
       h("span", { class: "who-line" }, i.who),
       h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
       h("span", { class: "marks" },
-        SYSTEMS.map((s) => h("span", {}, `${LABEL[s].slice(-1)} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, "Pending"))))))))));
+        SYSTEMS.map((s) => h("span", {}, `${SHORT[s]} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, "Pending"))))))))));
   $app.replaceChildren(topbar("all"),
     h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showList(); } }, text))),
@@ -414,6 +424,9 @@ function sidebarList(selectedId) {
   for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
   return h("aside", { class: "side" },
     h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton()),
+    state.role === "tech" ? h("div", { class: "row side-links" },
+      h("button", { class: "link", onclick: showBenchmark }, "Benchmark"),
+      state.isOwner ? h("button", { class: "link", onclick: showTeam }, "Team") : null) : null,
     kindTabs("queue"),
     h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showDesk(selectedId); } }, text))),
@@ -423,11 +436,12 @@ function sidebarList(selectedId) {
         h("span", { class: "who-line" }, i.who),
         h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
         h("span", { class: "marks" },
-          SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${LABEL[s].slice(-1)} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${LABEL[s].slice(-1)} pending`)))))))))
+          SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${SHORT[s]} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${SHORT[s]} pending`)))))))))
       : h("p", { class: "note pad" }, "Nothing here for this filter."));
 }
 
 async function showDesk(id) {
+  $app.classList.remove("page");
   stopAudio();
   hideToast();
   if (tg) tg.BackButton.hide();
@@ -477,6 +491,122 @@ async function showDesk(id) {
       h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
       h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, `${fmtDate(row.date)}, ${row.time}`), row.duration ? h("span", {}, row.duration) : null)),
     audio, cols);
+}
+
+// ---------- Tech team: benchmark ----------
+function pctText(sc) { return sc && sc.pct != null ? `${sc.pct}%` : "–"; }
+
+function trendChart(days, systems) {
+  // inline SVG (CSP-safe): one line per system, % correct per conversation day
+  const ns = "http://www.w3.org/2000/svg";
+  const W = 640, H = 200, P = 28;
+  const svg = document.createElementNS(ns, "svg");
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  svg.setAttribute("class", "trend");
+  svg.setAttribute("role", "img");
+  svg.setAttribute("aria-label", "Percent correct per day for each system");
+  const x = (k) => P + (days.length < 2 ? (W - 2 * P) / 2 : (k * (W - 2 * P)) / (days.length - 1));
+  const y = (v) => H - P - (v / 100) * (H - 2 * P);
+  for (const v of [0, 50, 100]) {
+    const l = document.createElementNS(ns, "line");
+    [["x1", P], ["x2", W - P], ["y1", y(v)], ["y2", y(v)], ["class", "grid"]].forEach(([k, val]) => l.setAttribute(k, val));
+    const t = document.createElementNS(ns, "text");
+    [["x", 2], ["y", y(v) + 4], ["class", "axis"]].forEach(([k, val]) => t.setAttribute(k, val));
+    t.textContent = `${v}%`;
+    svg.append(l, t);
+  }
+  systems.forEach((s, n) => {
+    const pts = days.map((d, k) => (d[s] == null ? null : [x(k), y(d[s])])).filter(Boolean);
+    if (pts.length > 1) {
+      const pl = document.createElementNS(ns, "polyline");
+      pl.setAttribute("points", pts.map((p) => p.join(",")).join(" "));
+      pl.setAttribute("class", `series s${n}`);
+      svg.append(pl);
+    }
+    pts.forEach(([cx, cy]) => {
+      const c = document.createElementNS(ns, "circle");
+      [["cx", cx], ["cy", cy], ["r", 3.5], ["class", `dot s${n}`]].forEach(([k, val]) => c.setAttribute(k, val));
+      svg.append(c);
+    });
+  });
+  if (days.length) {
+    [[0, "start"], [days.length - 1, "end"]].forEach(([k, anchor]) => {
+      const t = document.createElementNS(ns, "text");
+      [["x", x(k)], ["y", H - 6], ["class", "axis"], ["text-anchor", anchor]].forEach(([a, val]) => t.setAttribute(a, val));
+      t.textContent = fmtDate(days[k].date);
+      svg.append(t);
+    });
+  }
+  return svg;
+}
+
+async function showBenchmark() {
+  stopAudio();
+  hideToast();
+  if (tg) tg.BackButton.show();
+  $app.classList.remove("wide");
+  $app.classList.add("page");
+  $app.replaceChildren(topbar("benchmark"), skeleton());
+  let b;
+  try {
+    b = await (await api("/api/benchmark")).json();
+  } catch (e) {
+    return showError(e, showBenchmark);
+  }
+  const sys = Object.keys(b.systems);
+  const card = (s, n) => h("section", { class: `score s${n}` },
+    h("h2", {}, b.labels[s]),
+    h("p", { class: "big" }, pctText(b.systems[s].all)),
+    h("p", { class: "note" }, `correct, ${b.systems[s].all.checked} checked of ${b.systems[s].all.available}`));
+  const cell = (sc) => h("td", {}, pctText(sc), h("span", { class: "note" }, ` (${sc.checked})`));
+  $app.replaceChildren(topbar("benchmark"),
+    h("div", { class: "scores" }, sys.map(card)),
+    h("section", { class: "panel-block" }, h("h2", {}, "Calls and in-store"),
+      h("table", { class: "grid-table" },
+        h("thead", {}, h("tr", {}, h("th", {}, "System"), h("th", {}, "All"), h("th", {}, "Calls"), h("th", {}, "In-store"))),
+        h("tbody", {}, sys.map((s) => h("tr", {}, h("th", {}, b.labels[s]),
+          cell(b.systems[s].all), cell(b.systems[s].call), cell(b.systems[s]["in-store"])))))),
+    h("section", { class: "panel-block" }, h("h2", {}, "Trend by day"),
+      h("div", { class: "legend" }, sys.map((s, n) => h("span", { class: `key s${n}` }, b.labels[s]))),
+      b.days.length ? trendChart(b.days, sys) : h("p", { class: "note" }, "No reviewed days yet.")),
+    h("section", { class: "panel-block" }, h("h2", {}, "Reviewers"),
+      b.reviewers.length ? h("table", { class: "grid-table" },
+        h("thead", {}, h("tr", {}, h("th", {}, "Name"), h("th", {}, "Today"), h("th", {}, "Total"))),
+        h("tbody", {}, b.reviewers.map((p) => h("tr", {}, h("th", {}, p.name), h("td", {}, p.today), h("td", {}, p.total)))))
+        : h("p", { class: "note" }, "No reviews yet.")));
+}
+
+// ---------- owner: who is in the Tech team ----------
+async function showTeam() {
+  stopAudio();
+  hideToast();
+  if (tg) tg.BackButton.show();
+  $app.classList.remove("wide");
+  $app.classList.add("page");
+  $app.replaceChildren(topbar("team"), skeleton());
+  let people;
+  try {
+    people = (await (await api("/api/team")).json()).people;
+  } catch (e) {
+    return showError(e, showTeam);
+  }
+  const render = () => $app.replaceChildren(topbar("team"),
+    h("p", { class: "note pad" }, "Tech team members see Gemma and Gemini results and the benchmark. Everyone else sees only the audio pipeline."),
+    h("ul", { class: "list" }, people.map((p) => h("li", { class: "person" },
+      h("div", {}, h("span", { class: "who-line" }, p.name), h("span", { class: "note" }, `${p.username ? "@" + p.username + ", " : ""}last opened ${fmtDate(p.last_seen.slice(0, 10))} ${p.last_seen.slice(11, 16)}`)),
+      p.owner ? h("span", { class: "badge todo" }, "Owner") : h("button", {
+        class: "switch", role: "switch", "aria-checked": String(p.tech), "aria-label": `Tech team: ${p.name}`,
+        onclick: async () => {
+          try {
+            people = (await (await api("/api/team", { method: "POST", body: JSON.stringify({ id: p.id, tech: !p.tech }) })).json()).people;
+            render();
+            toast("Saved");
+          } catch (e) {
+            showError(e, showTeam);
+          }
+        },
+      }, h("span", { class: "knob" }), p.tech ? "Tech team" : "General")))));
+  render();
 }
 
 // switching between phone and PC widths re-renders the current view

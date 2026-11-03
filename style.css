@@ -4,18 +4,21 @@
   --paper: #F5F5F7; --sheet: #FFFFFF; --ink: #1C1C1E; --quiet: #6E6E73; --rule: #E2E2E6;
   --accent: #1C1C1E; --accent-tint: #ECECEF; --ok: #1E7F46; --ok-tint: #E3F4EA; --bad: #C0362C; --bad-tint: #FBE8E6;
   --on-solid: #FFFFFF;
+  --c0: #1C1C1E; --c1: #2F6FDB; --c2: #B86E0B;
   --s1: 4px; --s2: 8px; --s3: 12px; --s4: 16px; --s5: 24px; --s6: 32px;
 }
 :root[data-theme="dark"] {
   --paper: #0E0E10; --sheet: #1C1C1E; --ink: #F2F2F5; --quiet: #A1A1A8; --rule: #2E2E32;
   --accent: #F2F2F5; --accent-tint: #2C2C30; --ok: #3CC77A; --ok-tint: #173523; --bad: #F2685D; --bad-tint: #3D1C19;
   --on-solid: #0E0E10;
+  --c0: #F2F2F5; --c1: #6FA0FF; --c2: #E6A23C;
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme]) {
     --paper: #0E0E10; --sheet: #1C1C1E; --ink: #F2F2F5; --quiet: #A1A1A8; --rule: #2E2E32;
     --accent: #F2F2F5; --accent-tint: #2C2C30; --ok: #3CC77A; --ok-tint: #173523; --bad: #F2685D; --bad-tint: #3D1C19;
     --on-solid: #0E0E10;
+    --c0: #F2F2F5; --c1: #6FA0FF; --c2: #E6A23C;
   }
 }
 
@@ -158,3 +161,45 @@ main.wide { max-width: 1440px; padding: 0 var(--s5); }
 /* theme switch */
 .theme-btn { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); display: grid; place-items: center; flex: none; }
 .top-left { display: flex; align-items: center; gap: var(--s2); }
+
+/* nav row */
+.seg.nav { display: grid; grid-auto-flow: column; grid-auto-columns: 1fr; margin-top: var(--s3); }
+.seg.nav .seg-btn { min-height: 40px; }
+.side-links { gap: var(--s2); margin-bottom: var(--s2); }
+
+/* pages (benchmark, team) use more width on PC */
+main.page { max-width: 1100px; }
+.scores { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s3); margin-bottom: var(--s4); }
+.score { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: var(--s4); border-top: 4px solid var(--c0); }
+.score.s1 { border-top-color: var(--c1); }
+.score.s2 { border-top-color: var(--c2); }
+.score .big { font-size: 34px; font-weight: 600; font-variant-numeric: tabular-nums; margin: var(--s1) 0; }
+.panel-block { background: var(--sheet); border: 1px solid var(--rule); border-radius: 10px; padding: var(--s4); margin-bottom: var(--s4); overflow-x: auto; }
+.panel-block h2 { margin-bottom: var(--s3); }
+.grid-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.grid-table th, .grid-table td { text-align: left; padding: var(--s2) var(--s3) var(--s2) 0; border-top: 1px solid var(--rule); white-space: nowrap; }
+.grid-table thead th { border-top: 0; color: var(--quiet); font-size: 13px; font-weight: 600; }
+.legend { display: flex; flex-wrap: wrap; gap: var(--s4); margin-bottom: var(--s2); font-size: 13px; }
+.key::before { content: ""; display: inline-block; width: 12px; height: 3px; border-radius: 2px; margin-right: var(--s2); vertical-align: middle; background: var(--c0); }
+.key.s1::before { background: var(--c1); }
+.key.s2::before { background: var(--c2); }
+.trend { width: 100%; height: auto; max-height: 280px; display: block; }
+.trend .grid { stroke: var(--rule); stroke-width: 1; }
+.trend .axis { fill: var(--quiet); font-size: 11px; }
+.trend .series { fill: none; stroke-width: 2.5; stroke: var(--c0); }
+.trend .series.s1 { stroke: var(--c1); }
+.trend .series.s2 { stroke: var(--c2); }
+.trend .dot { fill: var(--c0); }
+.trend .dot.s1 { fill: var(--c1); }
+.trend .dot.s2 { fill: var(--c2); }
+
+/* team switches */
+.person { display: flex; align-items: center; justify-content: space-between; gap: var(--s3); padding: var(--s3) var(--s4); }
+.person > div { display: grid; gap: 2px; min-width: 0; }
+.list .switch { width: auto; display: inline-flex; text-align: left; min-height: 44px; padding: 0 var(--s2); }
+.switch { display: inline-flex; align-items: center; gap: var(--s2); min-height: 44px; padding: 0 var(--s2); font-size: 13px; font-weight: 600; color: var(--quiet); flex: none; }
+.switch .knob { width: 40px; height: 24px; border-radius: 12px; background: var(--rule); position: relative; transition: background 150ms; }
+.switch .knob::after { content: ""; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: var(--sheet); transition: transform 150ms; }
+.switch[aria-checked="true"] { color: var(--ink); }
+.switch[aria-checked="true"] .knob { background: var(--ok); }
+.switch[aria-checked="true"] .knob::after { transform: translateX(16px); }
