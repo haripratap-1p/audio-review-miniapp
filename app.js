@@ -11,7 +11,10 @@ const $toast = document.getElementById("toast");
 // which systems and names this user may see come from the server (role-based)
 let SYSTEMS = ["pipeline"];
 let LABEL = { pipeline: "Audio pipeline" };
-const SHORT = { pipeline: "Pipeline", gemma: "Gemma", gemini: "Gemini" };
+const SHORT = { pipeline: "Pipeline", gemma: "Gemma", gemini: "Gemini", lfm: "LFM3" };
+// a system skipped because it doesn't support the conversation's language (LFM3: English only)
+const notUsed = (i, s) => (i.na || []).includes(s);
+const missingText = (i, s) => (notUsed(i, s) ? `${LABEL[s]} is not used for this language.` : `${LABEL[s]} isn't ready for this conversation yet.`);
 const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing parts", "Other"];
 const PAPER = { light: "#F5F5F7", dark: "#0E0E10" };  // same values as --paper in style.css
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -205,7 +208,7 @@ async function flush() {
 // ---------- shared pieces ----------
 function topbar(active) {
   const mine = state.items.filter((i) => i.kind === state.kind);
-  const waiting = mine.filter((i) => SYSTEMS.some((s) => !has(i, s))).length;
+  const waiting = mine.filter((i) => SYSTEMS.some((s) => !has(i, s) && !notUsed(i, s))).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
 
@@ -218,7 +221,7 @@ function topbar(active) {
       state.isOwner ? tab("team", "Team", showTeam) : null),
     page ? null : kindTabs(active),
     page ? null : h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"),
-      SYSTEMS.length > 1 ? stat(waiting, "waiting for Gemma or Gemini") : null));
+      SYSTEMS.length > 1 ? stat(waiting, "waiting for other models") : null));
 }
 
 function kindTabs(active) {
@@ -339,7 +342,7 @@ async function showReview(id, startSys) {
     tabs.replaceChildren(...SYSTEMS.map((s) => h("button", {
       class: "tab", role: "tab", "aria-selected": String(s === cur), onclick: () => { cur = s; paint(); },
     }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)));
-    panel.replaceChildren(transcript(d[cur], `${LABEL[cur]} isn't ready for this conversation yet. It will come back to your queue when it is.`));
+    panel.replaceChildren(transcript(d[cur], notUsed(row, cur) ? missingText(row, cur) : `${missingText(row, cur)} It will come back to your queue when it is.`));
     verdict.replaceChildren(
       h("div", { class: "row between" },
         h("p", { class: "ask" }, notReady ? "Nothing to check yet" : `Is the ${LABEL[cur]} result correct?`),
@@ -409,7 +412,7 @@ function showList() {
       h("span", { class: "who-line" }, i.who),
       h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
       h("span", { class: "marks" },
-        SYSTEMS.map((s) => h("span", {}, `${SHORT[s]} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, "Pending"))))))))));
+        SYSTEMS.map((s) => h("span", {}, `${SHORT[s]} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, notUsed(i, s) ? "N/A" : "Pending"))))))))));
   $app.replaceChildren(topbar("all"),
     h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showList(); } }, text))),
@@ -436,7 +439,7 @@ function sidebarList(selectedId) {
         h("span", { class: "who-line" }, i.who),
         h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
         h("span", { class: "marks" },
-          SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${SHORT[s]} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${SHORT[s]} pending`)))))))))
+          SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${SHORT[s]} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${SHORT[s]} ${notUsed(i, s) ? "N/A" : "pending"}`)))))))))
       : h("p", { class: "note pad" }, "Nothing here for this filter."));
 }
 
@@ -468,7 +471,7 @@ async function showDesk(id) {
     const pending = !has(row, sys);
     return h("section", { class: "col" },
       h("div", { class: "row between col-head" }, h("h2", {}, LABEL[sys]), row.mine[sys] ? badge(row.mine[sys], verdictText(row.mine[sys])) : null),
-      h("div", { class: "col-body" }, transcript(d[sys], `${LABEL[sys]} isn't ready for this conversation yet.`)),
+      h("div", { class: "col-body" }, transcript(d[sys], missingText(row, sys))),
       pending ? null : h("div", { class: "row col-verdict" },
         h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote(sys, "bad", note)) }, icon("cross"), "Wrong"),
         h("button", { class: "btn ok solid", onclick: () => vote(sys, "ok", "") }, icon("check"), "Correct")));
