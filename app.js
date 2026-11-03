@@ -1,4 +1,4 @@
-// Telegram Mini App: store staff check one conversation at a time (audio pipeline vs Gemma 4).
+// Telegram Mini App: store staff check one conversation at a time, comparing Options A, B and C (blind).
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || params.get("tgWebAppStartParam") || "";
@@ -8,10 +8,10 @@ const API = /^[a-z0-9-]+$/.test(sub) ? `https://${sub}.trycloudflare.com` : "";
 const INIT = (tg && tg.initData) || "";
 const $app = document.getElementById("app");
 const $toast = document.getElementById("toast");
-const SYSTEMS = ["pipeline", "gemma"];
-const LABEL = { pipeline: "Audio pipeline", gemma: "Gemma 4" };
+const SYSTEMS = ["pipeline", "gemma", "gemini"];
+const LABEL = { pipeline: "Option A", gemma: "Option B", gemini: "Option C" };
 const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing parts", "Other"];
-const PAPER = { light: "#F4F7F6", dark: "#0E1514" };  // same values as --paper in style.css
+const PAPER = { light: "#F5F5F7", dark: "#0E0E10" };  // same values as --paper in style.css
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 const state = {
@@ -19,12 +19,31 @@ const state = {
   skipped: [], pending: [], details: new Map(), audio: new Map(),
 };
 
-// ---------- theme: light or dark, following Telegram ----------
+// ---------- theme: white or dark; the reviewer's choice wins, else Telegram's ----------
+function savedTheme() {
+  try { return localStorage.getItem("theme"); } catch { return null; }
+}
 function applyTheme() {
-  const dark = tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const pick = savedTheme();
+  const dark = pick ? pick === "dark" : tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
   const mode = dark ? "dark" : "light";
   document.documentElement.dataset.theme = mode;
   try { tg.setHeaderColor(PAPER[mode]); tg.setBackgroundColor(PAPER[mode]); } catch {}
+  document.querySelectorAll(".theme-btn").forEach(paintThemeButton);
+}
+function paintThemeButton(btn) {
+  const dark = document.documentElement.dataset.theme === "dark";
+  btn.replaceChildren(icon(dark ? "sun" : "moon"));
+  btn.setAttribute("aria-label", dark ? "Switch to white theme" : "Switch to dark theme");
+}
+function themeButton() {
+  const btn = h("button", { class: "theme-btn", onclick: () => {
+    const next = document.documentElement.dataset.theme === "dark" ? "light" : "dark";
+    try { localStorage.setItem("theme", next); } catch {}
+    applyTheme();
+  } });
+  paintThemeButton(btn);
+  return btn;
 }
 applyTheme();
 if (tg) tg.onEvent("themeChanged", applyTheme);
@@ -45,6 +64,8 @@ function h(tag, attrs = {}, ...kids) {
 const ICON_PATHS = {
   play: "M8 5v14l11-7z", pause: "M7 5h4v14H7zM13 5h4v14h-4z",
   check: "M5 12.5l4.5 4.5L19 7.5", cross: "M6 6l12 12M18 6L6 18",
+  sun: "M12 8a4 4 0 1 0 0 8a4 4 0 1 0 0-8zM12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4",
+  moon: "M20 14.5A8 8 0 1 1 9.5 4a6.5 6.5 0 0 0 10.5 10.5z",
 };
 function icon(name) {
   const ns = "http://www.w3.org/2000/svg";
@@ -118,7 +139,9 @@ async function loadList() {
 }
 
 // a conversation is still open for me until every available result has my verdict
-const isDone = (i) => i.mine.pipeline && (i.mine.gemma || !i.ready);
+const has = (i, s) => (i.avail ? i.avail[s] : s === "pipeline" || (s === "gemma" && i.ready));
+const isDone = (i) => SYSTEMS.every((s) => !has(i, s) || i.mine[s]);
+const nextOpen = (i, after) => SYSTEMS.find((s) => s !== after && has(i, s) && !i.mine[s]);
 function queue() {
   const open = state.items.filter((i) => i.kind === state.kind && !isDone(i));
   return [...open.filter((i) => !state.skipped.includes(i.id)), ...open.filter((i) => state.skipped.includes(i.id))];
@@ -176,17 +199,17 @@ async function flush() {
 // ---------- shared pieces ----------
 function topbar(active) {
   const mine = state.items.filter((i) => i.kind === state.kind);
-  const waiting = mine.filter((i) => !i.ready).length;
+  const waiting = mine.filter((i) => !has(i, "gemma") || !has(i, "gemini")).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
 
   return h("header", { class: "top" },
     h("div", { class: "row between" },
-      h("h1", {}, "Review"),
+      h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton()),
       h("div", { class: "seg", role: "group", "aria-label": "View" },
         tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All conversations", showList))),
     kindTabs(active),
-    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"), stat(waiting, "waiting for Gemma")));
+    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(mine.filter((i) => i.mine.pipeline).length, "checked by you"), stat(waiting, "waiting for B or C")));
 }
 
 function kindTabs(active) {
@@ -295,7 +318,7 @@ async function showReview(id, startSys) {
     return showError(e, () => showReview(row.id, startSys));
   }
   prefetch(q.find((i) => i.id !== row.id)?.id);
-  let cur = startSys || (!row.mine.pipeline ? "pipeline" : row.ready && !row.mine.gemma ? "gemma" : "pipeline");
+  let cur = startSys || nextOpen(row) || "pipeline";
   const audio = player(row.id);
   const tabs = h("div", { class: "tabs", role: "tablist" });
   const panel = h("section", { class: "panel", role: "tabpanel" });
@@ -303,16 +326,16 @@ async function showReview(id, startSys) {
   const done = [];
 
   const paint = () => {
-    const waitingForGemma = cur === "gemma" && !row.ready;
+    const notReady = !has(row, cur);
     tabs.replaceChildren(...SYSTEMS.map((s) => h("button", {
       class: "tab", role: "tab", "aria-selected": String(s === cur), onclick: () => { cur = s; paint(); },
     }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)));
-    panel.replaceChildren(transcript(d[cur], "Gemma 4 hasn't processed this conversation yet. It will come back to your queue for the Gemma 4 check."));
+    panel.replaceChildren(transcript(d[cur], `${LABEL[cur]} isn't ready for this conversation yet. It will come back to your queue when it is.`));
     verdict.replaceChildren(
       h("div", { class: "row between" },
-        h("p", { class: "ask" }, waitingForGemma ? "Nothing to check yet" : `Is the ${LABEL[cur]} transcript correct?`),
+        h("p", { class: "ask" }, notReady ? "Nothing to check yet" : `Is ${LABEL[cur]} correct?`),
         h("button", { class: "link", onclick: skip }, "Skip")),
-      waitingForGemma ? null : h("div", { class: "row" },
+      notReady ? null : h("div", { class: "row" },
         h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote("bad", note)) }, icon("cross"), "Wrong"),
         h("button", { class: "btn ok solid", onclick: () => vote("ok", "") }, icon("check"), "Correct")));
     window.scrollTo({ top: 0, behavior: "instant" });
@@ -323,8 +346,8 @@ async function showReview(id, startSys) {
     saveVote(row.id, cur, v, note);
     if (!had) done.push(cur);
     haptic(v === "ok" ? "success" : "warning");
-    const other = cur === "pipeline" ? "gemma" : "pipeline";
-    if (!row.mine[other] && (other === "pipeline" || row.ready)) { cur = other; return paint(); }
+    const nextSys = nextOpen(row, cur);
+    if (nextSys) { cur = nextSys; return paint(); }
     audio.stop();
     if (done.length) state.myToday += 1;
     const next = queue()[0];
@@ -376,8 +399,7 @@ function showList() {
       h("span", { class: "who-line" }, i.who),
       h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
       h("span", { class: "marks" },
-        h("span", {}, "Pipeline ", badge(i.mine.pipeline, verdictText(i.mine.pipeline))),
-        h("span", {}, "Gemma 4 ", i.ready ? badge(i.mine.gemma, verdictText(i.mine.gemma)) : h("span", { class: "badge todo" }, "Pending")))))))));
+        SYSTEMS.map((s) => h("span", {}, `${LABEL[s].slice(-1)} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, "Pending"))))))))));
   $app.replaceChildren(topbar("all"),
     h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showList(); } }, text))),
@@ -391,7 +413,7 @@ function sidebarList(selectedId) {
   const days = new Map();
   for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
   return h("aside", { class: "side" },
-    h("h1", {}, "Review"),
+    h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton()),
     kindTabs("queue"),
     h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
       filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showDesk(selectedId); } }, text))),
@@ -401,8 +423,7 @@ function sidebarList(selectedId) {
         h("span", { class: "who-line" }, i.who),
         h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
         h("span", { class: "marks" },
-          badge(i.mine.pipeline, `Pipeline ${verdictText(i.mine.pipeline).toLowerCase()}`),
-          i.ready ? badge(i.mine.gemma, `Gemma ${verdictText(i.mine.gemma).toLowerCase()}`) : h("span", { class: "badge todo" }, "Gemma pending"))))))))
+          SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${LABEL[s].slice(-1)} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${LABEL[s].slice(-1)} pending`)))))))))
       : h("p", { class: "note pad" }, "Nothing here for this filter."));
 }
 
@@ -430,16 +451,16 @@ async function showDesk(id) {
   const audio = player(row.id);
   const done = [];
   const column = (sys) => {
-    const pending = sys === "gemma" && !row.ready;
+    const pending = !has(row, sys);
     return h("section", { class: "col" },
       h("div", { class: "row between col-head" }, h("h2", {}, LABEL[sys]), row.mine[sys] ? badge(row.mine[sys], verdictText(row.mine[sys])) : null),
-      h("div", { class: "col-body" }, transcript(d[sys], "Gemma 4 hasn't processed this conversation yet.")),
+      h("div", { class: "col-body" }, transcript(d[sys], `${LABEL[sys]} isn't ready for this conversation yet.`)),
       pending ? null : h("div", { class: "row col-verdict" },
         h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote(sys, "bad", note)) }, icon("cross"), "Wrong"),
         h("button", { class: "btn ok solid", onclick: () => vote(sys, "ok", "") }, icon("check"), "Correct")));
   };
   const cols = h("div", { class: "cols" });
-  const paint = () => cols.replaceChildren(column("pipeline"), column("gemma"));
+  const paint = () => cols.replaceChildren(...SYSTEMS.map(column));
   const vote = (sys, v, note) => {
     if (!row.mine[sys]) done.push(sys);
     saveVote(row.id, sys, v, note);
