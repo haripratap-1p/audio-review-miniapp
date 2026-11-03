@@ -94,6 +94,20 @@ button:disabled { opacity: 0.5; cursor: default; }
 .said { overflow-wrap: anywhere; }
 .en, .tone { color: var(--quiet); font-size: 13px; overflow-wrap: anywhere; }
 
+/* line-by-line marks */
+.turns.marked li { grid-template-columns: 28px 1fr auto; margin: 0 calc(-1 * var(--s2)); padding-left: var(--s2); padding-right: var(--s2); border-radius: 6px; }
+.turns li.is-ok { background: var(--ok-tint); }
+.turns li.is-bad { background: var(--bad-tint); }
+.lmarks { display: flex; align-items: flex-start; gap: var(--s1); flex-wrap: wrap; justify-content: flex-end; max-width: 120px; }
+.lm { width: 44px; height: 40px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); display: grid; place-items: center; color: var(--quiet); }
+.lm .ic { width: 18px; height: 18px; }
+.lm.ok[aria-pressed="true"] { background: var(--ok); border-color: var(--ok); color: var(--on-solid); }
+.lm.bad[aria-pressed="true"] { background: var(--bad); border-color: var(--bad); color: var(--on-solid); }
+.lnote { color: var(--bad); font-size: 13px; font-weight: 500; }
+.counter { margin-bottom: var(--s2); }
+.summary-line { overflow-wrap: anywhere; }
+.row.saved { align-items: center; justify-content: space-between; }
+
 /* status badges */
 .badge { display: inline-flex; align-items: center; gap: var(--s1); font-size: 13px; font-weight: 600; padding: 1px var(--s2); border-radius: 6px; }
 .badge .ic { width: 13px; height: 13px; }

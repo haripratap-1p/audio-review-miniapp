@@ -21,7 +21,7 @@ const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "
 
 const state = {
   items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all", kind: "call",
-  skipped: [], pending: [], details: new Map(), audio: new Map(),
+  skipped: [], pending: [], details: new Map(), audio: new Map(), drafts: new Map(),
 };
 
 // ---------- theme: white or dark; the reviewer's choice wins, else Telegram's ----------
@@ -102,6 +102,12 @@ async function api(path, opts = {}) {
 const haptic = (kind) => tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind);
 const fmtDate = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
 const todayIst = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+// lists are ordered and grouped by when a recording reached us; the call time comes from the phone
+const arrDay = (i) => (i.arrived || "").slice(0, 10) || i.date;
+const arrTime = (i) => (i.arrived || "").slice(11, 16);
+const listWhen = (i) => (i.date === arrDay(i) ? i.time : `called ${fmtDate(i.date)}, ${i.time}`);
+const whenText = (i) => (i.date === arrDay(i) ? `${fmtDate(i.date)}, ${i.time}`
+  : `Called ${fmtDate(i.date)}, ${i.time} · arrived ${fmtDate(arrDay(i))}, ${arrTime(i)}`);
 const dayLabel = (d) => (d === todayIst() ? "Today" : d === new Date(Date.now() + 5.5 * 3600e3 - 864e5).toISOString().slice(0, 10) ? "Yesterday" : fmtDate(d));
 
 function toast(text, action) {
@@ -178,12 +184,25 @@ function prefetch(id) {
 }
 
 // votes are saved in the background; failures are retried so the reviewer never waits
-function saveVote(id, system, verdict, note = "") {
+function saveVote(id, system, verdict, note = "", lines = null) {
   const row = state.items.find((i) => i.id === id);
   if (row) row.mine[system] = verdict === "clear" ? null : verdict;
-  state.pending.push({ id, system, verdict, note });
-  if (tg && tg.enableClosingConfirmation) tg.enableClosingConfirmation();
+  state.pending.push({ id, system, verdict, note, ...(lines ? { lines } : {}) });
+  guardClose();
   flush();
+}
+
+// line marks are drafts until the review is submitted; closing the app with drafts or unsent votes asks first
+const draftOf = (id, s) => {
+  const k = `${id}|${s}`;
+  if (!state.drafts.has(k)) state.drafts.set(k, {});
+  return state.drafts.get(k);
+};
+const hasDrafts = () => [...state.drafts.values()].some((m) => Object.keys(m).length);
+function guardClose() {
+  if (!tg) return;
+  if (state.pending.length || hasDrafts()) tg.enableClosingConfirmation && tg.enableClosingConfirmation();
+  else tg.disableClosingConfirmation && tg.disableClosingConfirmation();
 }
 
 async function flush() {
@@ -202,7 +221,7 @@ async function flush() {
     }
   }
   flush.busy = false;
-  if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
+  guardClose();
 }
 
 // ---------- shared pieces ----------
@@ -274,27 +293,117 @@ function player(id) {
   return box;
 }
 
-function transcript(result, pending) {
+// lines: { marks: {idx: {verdict, note}}, team: {idx: {ok, bad}}, edit: bool, onMark(idx, verdict|null, note) }
+function transcript(result, pending, lines) {
   if (!result) return h("p", { class: "note" }, pending);
   if (result.error) return h("p", { class: "warn" }, "This result failed: " + result.error);
   const num = (s) => (String(s || "?").match(/\d+/) || ["?"])[0];
+  const marksFor = (k) => {
+    if (!lines) return null;
+    const m = lines.marks[k], t = lines.team && lines.team[k];
+    const team = t ? h("span", { class: "note" }, `Team ✓${t.ok} ✗${t.bad}`) : null;
+    if (!lines.edit) return h("div", { class: "lmarks" }, m ? badge(m.verdict, m.verdict === "ok" ? "Line correct" : "Line wrong") : null, team);
+    const pick = (v) => () => {
+      if (m && m.verdict === v) return lines.onMark(k, null, "");
+      if (v === "ok") return lines.onMark(k, "ok", "");
+      reasonSheet((note) => lines.onMark(k, "bad", note), `What was wrong in line ${Number(k) + 1}?`, "Mark line wrong");
+    };
+    return h("div", { class: "lmarks" },
+      h("button", { class: "lm ok", "aria-pressed": String(m?.verdict === "ok"), "aria-label": `Line ${Number(k) + 1} is correct`, onclick: pick("ok") }, icon("check")),
+      h("button", { class: "lm bad", "aria-pressed": String(m?.verdict === "bad"), "aria-label": `Line ${Number(k) + 1} is wrong`, onclick: pick("bad") }, icon("cross")), team);
+  };
   return h("div", {},
     h("p", { class: "summary" }, h("span", { class: "mood" }, result.sentiment || "No mood"), result.summary ? ` ${result.summary}` : ""),
-    h("ol", { class: "turns" }, (result.turns || []).map((t) => h("li", {},
+    h("ol", { class: `turns${lines ? " marked" : ""}` }, (result.turns || []).map((t, k) => h("li", { class: lines?.marks[k] ? `is-${lines.marks[k].verdict}` : "" },
       h("span", { class: "spk", title: t.speaker || "" }, num(t.speaker)),
       h("div", {},
         h("p", { class: "said" }, t.text || ""),
         t.english && t.english !== t.text ? h("p", { class: "en" }, t.english) : null,
-        t.sentiment ? h("p", { class: "tone" }, t.sentiment) : null)))));
+        t.sentiment ? h("p", { class: "tone" }, t.sentiment) : null,
+        lines?.marks[k]?.note ? h("p", { class: "lnote" }, `Wrong: ${lines.marks[k].note}`) : null),
+      marksFor(String(k))))));
 }
 
-function reasonSheet(onSave) {
+// one system's review: transcript with line marks, then Correct/Wrong behind a confirm, or my saved review with Undo
+function reviewArea(row, d, sys, after) {
+  const result = d[sys], saved = row.mine[sys], n = (result?.turns || []).length;
+  const info = (d.lines && d.lines[sys]) || { mine: {}, team: {} };
+  if (!has(row, sys)) return { ask: "Nothing to check yet", body: transcript(null, missingText(row, sys)), actions: null };
+  if (saved) {
+    const undo = () => confirmSheet("Undo your review?",
+      [`Your “${verdictText(saved)}” for ${LABEL[sys]} on ${row.who} and your line marks will be removed.`, "It goes back to To review."],
+      "Undo my review", "bad solid", () => {
+        saveVote(row.id, sys, "clear");
+        if (d.lines) d.lines[sys] = { mine: {}, team: {} };
+        haptic("warning");
+        toast("Review removed");
+        after("undo");
+      });
+    return {
+      ask: `You reviewed ${LABEL[sys]}`,
+      body: transcript(result, "", { marks: info.mine, team: info.team, edit: false }),
+      actions: h("div", { class: "row saved" }, badge(saved, `You said ${verdictText(saved)}`), h("button", { class: "btn quiet", onclick: undo }, "Undo my review")),
+    };
+  }
+  const draft = draftOf(row.id, sys);
+  const body = h("div", {});
+  const counter = h("p", { class: "note counter", "aria-live": "polite" });
+  const paintBody = () => {
+    const vals = Object.values(draft), ok = vals.filter((m) => m.verdict === "ok").length;
+    counter.textContent = vals.length ? `${vals.length} of ${n} lines marked: ${ok} correct, ${vals.length - ok} wrong. Saved only when you submit.`
+      : "Optional: mark each line ✓ or ✗, then choose Correct or Wrong for the whole result.";
+    body.replaceChildren(transcript(result, "", {
+      marks: draft, edit: true,
+      onMark: (k, v, note) => { v ? (draft[k] = { verdict: v, note }) : delete draft[k]; guardClose(); paintBody(); },
+    }));
+  };
+  const submit = (v, note) => {
+    const vals = Object.values(draft), bad = vals.filter((m) => m.verdict === "bad").length, good = vals.length - bad;
+    const lines = [
+      `${LABEL[sys]} · ${row.who}`,
+      h("span", {}, "Whole result: ", badge(v, verdictText(v)), note ? ` (${note})` : ""),
+      `Lines: ${good} correct · ${bad} wrong · ${n - vals.length} not marked`,
+      v === "ok" && bad ? { warn: true, text: `You marked ${bad} line${bad === 1 ? "" : "s"} wrong but the whole result Correct. Check before submitting.` } : null,
+      v === "bad" && vals.length && !bad ? { warn: true, text: "Every marked line is correct but the whole result is Wrong. Check before submitting." } : null,
+    ];
+    confirmSheet("Submit this review?", lines, "Submit review", v === "ok" ? "ok solid" : "bad solid", () => {
+      saveVote(row.id, sys, v, note, { ...draft });
+      if (d.lines) d.lines[sys] = { mine: { ...draft }, team: {} };
+      state.drafts.delete(`${row.id}|${sys}`);
+      guardClose();
+      haptic(v === "ok" ? "success" : "warning");
+      after(v);
+    });
+  };
+  paintBody();
+  return {
+    ask: `Is the ${LABEL[sys]} result correct?`,
+    body: h("div", {}, counter, body),
+    actions: h("div", { class: "row" },
+      h("button", { class: "btn bad", onclick: () => reasonSheet((note) => submit("bad", note)) }, icon("cross"), "Wrong"),
+      h("button", { class: "btn ok solid", onclick: () => submit("ok", "") }, icon("check"), "Correct")),
+  };
+}
+
+function confirmSheet(title, lines, okLabel, okClass, onOk) {
+  const close = () => sheet.remove();
+  const ok = h("button", { class: `btn ${okClass}`, onclick: () => { ok.disabled = true; close(); onOk(); } }, okLabel);
+  const sheet = h("div", { class: "sheet-bg", onclick: (e) => e.target === sheet && close() },
+    h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
+      h("h2", { id: "confirm-title" }, title),
+      lines.filter(Boolean).map((l) => h("p", { class: l.warn ? "warn" : "summary-line" }, l.text || l)),
+      h("div", { class: "row" }, h("button", { class: "btn quiet", onclick: close }, "Go back"), ok)));
+  document.body.append(sheet);
+  ok.focus();
+}
+
+function reasonSheet(onSave, title = "What was wrong?", saveText = "Save as wrong") {
   const picked = new Set();
   const other = h("input", { type: "text", maxlength: 200, placeholder: "Anything else? (optional)", "aria-label": "Other reason" });
   const close = () => sheet.remove();
   const sheet = h("div", { class: "sheet-bg", onclick: (e) => e.target === sheet && close() },
     h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-labelledby": "sheet-title" },
-      h("h2", { id: "sheet-title" }, "What was wrong?"),
+      h("h2", { id: "sheet-title" }, title),
       h("p", { class: "note" }, "Tap all that apply."),
       h("div", { class: "chips" }, REASONS.map((r) => h("button", {
         class: "chip", "aria-pressed": "false",
@@ -303,7 +412,7 @@ function reasonSheet(onSave) {
       other,
       h("div", { class: "row" },
         h("button", { class: "btn quiet", onclick: close }, "Cancel"),
-        h("button", { class: "btn bad solid", onclick: () => { close(); onSave([...picked, other.value.trim()].filter(Boolean).join(", ")); } }, "Save as wrong"))));
+        h("button", { class: "btn bad solid", onclick: () => { close(); onSave([...picked, other.value.trim()].filter(Boolean).join(", ")); } }, saveText))));
   document.body.append(sheet);
   sheet.querySelector(".chip").focus();
 }
@@ -342,22 +451,16 @@ async function showReview(id, startSys) {
     tabs.replaceChildren(...SYSTEMS.map((s) => h("button", {
       class: "tab", role: "tab", "aria-selected": String(s === cur), onclick: () => { cur = s; paint(); },
     }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)));
-    panel.replaceChildren(transcript(d[cur], notUsed(row, cur) ? missingText(row, cur) : `${missingText(row, cur)} It will come back to your queue when it is.`));
+    const ra = reviewArea(row, d, cur, (v) => (v === "undo" ? paint() : vote()));
+    panel.replaceChildren(notReady ? transcript(null, notUsed(row, cur) ? missingText(row, cur) : `${missingText(row, cur)} It will come back to your queue when it is.`) : ra.body);
     verdict.replaceChildren(
-      h("div", { class: "row between" },
-        h("p", { class: "ask" }, notReady ? "Nothing to check yet" : `Is the ${LABEL[cur]} result correct?`),
-        h("button", { class: "link", onclick: skip }, "Skip")),
-      notReady ? null : h("div", { class: "row" },
-        h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote("bad", note)) }, icon("cross"), "Wrong"),
-        h("button", { class: "btn ok solid", onclick: () => vote("ok", "") }, icon("check"), "Correct")));
+      h("div", { class: "row between" }, h("p", { class: "ask" }, ra.ask), h("button", { class: "link", onclick: skip }, "Skip")),
+      ra.actions);
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
-  const vote = (v, note) => {
-    const had = row.mine[cur];
-    saveVote(row.id, cur, v, note);
-    if (!had) done.push(cur);
-    haptic(v === "ok" ? "success" : "warning");
+  const vote = () => {
+    done.push(cur);
     const nextSys = nextOpen(row, cur);
     if (nextSys) { cur = nextSys; return paint(); }
     audio.stop();
@@ -378,7 +481,7 @@ async function showReview(id, startSys) {
   $app.replaceChildren(topbar("queue"),
     h("section", { class: "who" },
       h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
-      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, `${fmtDate(row.date)}, ${row.time}`), row.duration ? h("span", {}, row.duration) : null)),
+      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, whenText(row)), row.duration ? h("span", {}, row.duration) : null)),
     audio, tabs, panel, verdict);
   paint();
 }
@@ -405,12 +508,12 @@ function showList() {
   const filters = [["all", "All"], ["todo", "To review"]];
   const keep = (i) => i.kind === state.kind && (state.filter === "all" || !isDone(i));
   const days = new Map();
-  for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
+  for (const i of state.items.filter(keep)) days.set(arrDay(i), [...(days.get(arrDay(i)) || []), i]);
   const rows = [...days].map(([date, list]) => h("section", { class: "day" },
     h("h2", {}, dayLabel(date)),
     h("ul", { class: "list" }, list.map((i) => h("li", {}, h("button", { onclick: () => showReview(i.id) },
       h("span", { class: "who-line" }, i.who),
-      h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
+      h("span", { class: "note" }, `${listWhen(i)}${i.duration ? `, ${i.duration}` : ""}`),
       h("span", { class: "marks" },
         SYSTEMS.map((s) => h("span", {}, `${SHORT[s]} `, has(i, s) ? badge(i.mine[s], verdictText(i.mine[s])) : h("span", { class: "badge todo" }, notUsed(i, s) ? "N/A" : "Pending"))))))))));
   $app.replaceChildren(topbar("all"),
@@ -424,7 +527,7 @@ function sidebarList(selectedId) {
   const filters = [["all", "All"], ["todo", "To review"]];
   const keep = (i) => i.kind === state.kind && (state.filter === "all" || !isDone(i));
   const days = new Map();
-  for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
+  for (const i of state.items.filter(keep)) days.set(arrDay(i), [...(days.get(arrDay(i)) || []), i]);
   return h("aside", { class: "side" },
     h("div", { class: "top-left" }, h("h1", {}, "Review"), themeButton()),
     state.role === "tech" ? h("div", { class: "row side-links" },
@@ -437,7 +540,7 @@ function sidebarList(selectedId) {
       h("h2", {}, dayLabel(date)),
       h("ul", { class: "list" }, list.map((i) => h("li", {}, h("button", { "aria-current": String(i.id === selectedId), onclick: () => showDesk(i.id) },
         h("span", { class: "who-line" }, i.who),
-        h("span", { class: "note" }, `${i.time}${i.duration ? `, ${i.duration}` : ""}`),
+        h("span", { class: "note" }, `${listWhen(i)}${i.duration ? `, ${i.duration}` : ""}`),
         h("span", { class: "marks" },
           SYSTEMS.map((s) => has(i, s) ? badge(i.mine[s], `${SHORT[s]} ${verdictText(i.mine[s]).toLowerCase()}`) : h("span", { class: "badge todo" }, `${SHORT[s]} ${notUsed(i, s) ? "N/A" : "pending"}`)))))))))
       : h("p", { class: "note pad" }, "Nothing here for this filter."));
@@ -468,20 +571,16 @@ async function showDesk(id) {
   const audio = player(row.id);
   const done = [];
   const column = (sys) => {
-    const pending = !has(row, sys);
+    const ra = reviewArea(row, d, sys, (v) => (v === "undo" ? paint() : vote(sys)));
     return h("section", { class: "col" },
       h("div", { class: "row between col-head" }, h("h2", {}, LABEL[sys]), row.mine[sys] ? badge(row.mine[sys], verdictText(row.mine[sys])) : null),
-      h("div", { class: "col-body" }, transcript(d[sys], missingText(row, sys))),
-      pending ? null : h("div", { class: "row col-verdict" },
-        h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote(sys, "bad", note)) }, icon("cross"), "Wrong"),
-        h("button", { class: "btn ok solid", onclick: () => vote(sys, "ok", "") }, icon("check"), "Correct")));
+      h("div", { class: "col-body" }, ra.body),
+      ra.actions ? h("div", { class: "col-verdict" }, ra.actions) : null);
   };
   const cols = h("div", { class: "cols" });
   const paint = () => cols.replaceChildren(...SYSTEMS.map(column));
-  const vote = (sys, v, note) => {
-    if (!row.mine[sys]) done.push(sys);
-    saveVote(row.id, sys, v, note);
-    haptic(v === "ok" ? "success" : "warning");
+  const vote = (sys) => {
+    done.push(sys);
     if (!isDone(row)) return paint();
     audio.stop();
     if (done.length) state.myToday += 1;
@@ -492,7 +591,7 @@ async function showDesk(id) {
   main.replaceChildren(
     h("section", { class: "who" },
       h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
-      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, `${fmtDate(row.date)}, ${row.time}`), row.duration ? h("span", {}, row.duration) : null)),
+      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, whenText(row)), row.duration ? h("span", {}, row.duration) : null)),
     audio, cols);
 }
 
