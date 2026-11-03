@@ -1,4 +1,4 @@
-// Telegram Mini App: review one conversation at a time — is the Audio pipeline text correct? is Gemma 4's?
+// Telegram Mini App: store staff check one conversation at a time (audio pipeline vs Gemma 4).
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || params.get("tgWebAppStartParam") || "";
@@ -8,10 +8,27 @@ const API = /^[a-z0-9-]+$/.test(sub) ? `https://${sub}.trycloudflare.com` : "";
 const INIT = (tg && tg.initData) || "";
 const $app = document.getElementById("app");
 const $toast = document.getElementById("toast");
-const STEPS = [["pipeline", "Audio pipeline"], ["gemma", "Gemma 4"]];
+const SYSTEMS = ["pipeline", "gemma"];
+const LABEL = { pipeline: "Audio pipeline", gemma: "Gemma 4" };
 const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing parts", "Other"];
+const PAPER = { light: "#F4F7F6", dark: "#0E1514" };  // same values as --paper in style.css
+const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
-const state = { items: [], ready: 0, teamDone: 0, myToday: 0, skipped: [], pending: [], details: new Map(), audio: new Map() };
+const state = {
+  items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all",
+  skipped: [], pending: [], details: new Map(), audio: new Map(),
+};
+
+// ---------- theme: light or dark, following Telegram ----------
+function applyTheme() {
+  const dark = tg && tg.colorScheme ? tg.colorScheme === "dark" : matchMedia("(prefers-color-scheme: dark)").matches;
+  const mode = dark ? "dark" : "light";
+  document.documentElement.dataset.theme = mode;
+  try { tg.setHeaderColor(PAPER[mode]); tg.setBackgroundColor(PAPER[mode]); } catch {}
+}
+applyTheme();
+if (tg) tg.onEvent("themeChanged", applyTheme);
+matchMedia("(prefers-color-scheme: dark)").addEventListener("change", applyTheme);
 
 // ---------- helpers ----------
 function h(tag, attrs = {}, ...kids) {
@@ -23,6 +40,22 @@ function h(tag, attrs = {}, ...kids) {
   }
   for (const kid of kids.flat()) if (kid != null && kid !== false) el.append(kid.nodeType ? kid : String(kid));
   return el;
+}
+
+const ICON_PATHS = {
+  play: "M8 5v14l11-7z", pause: "M7 5h4v14H7zM13 5h4v14h-4z",
+  check: "M5 12.5l4.5 4.5L19 7.5", cross: "M6 6l12 12M18 6L6 18",
+};
+function icon(name) {
+  const ns = "http://www.w3.org/2000/svg";
+  const svg = document.createElementNS(ns, "svg");
+  const path = document.createElementNS(ns, "path");
+  svg.setAttribute("viewBox", "0 0 24 24");
+  svg.setAttribute("aria-hidden", "true");
+  svg.setAttribute("class", `ic ${name === "play" || name === "pause" ? "fill" : "stroke"}`);
+  path.setAttribute("d", ICON_PATHS[name]);
+  svg.append(path);
+  return svg;
 }
 
 class ApiError extends Error {
@@ -41,25 +74,28 @@ async function api(path, opts = {}) {
 }
 
 const haptic = (kind) => tg && tg.HapticFeedback && tg.HapticFeedback.notificationOccurred(kind);
-const icon = (kind) => (kind === "call" ? "📞" : "🏪");
-const when = (i) => `${i.date.slice(8)}/${i.date.slice(5, 7)} ${i.time}${i.duration ? " · " + i.duration : ""}`;
+const fmtDate = (d) => `${Number(d.slice(8))} ${MONTHS[Number(d.slice(5, 7)) - 1]}`;
+const todayIst = () => new Date(Date.now() + 5.5 * 3600e3).toISOString().slice(0, 10);
+const dayLabel = (d) => (d === todayIst() ? "Today" : d === new Date(Date.now() + 5.5 * 3600e3 - 864e5).toISOString().slice(0, 10) ? "Yesterday" : fmtDate(d));
 
 function toast(text, action) {
-  $toast.replaceChildren(h("span", {}, text), action ? h("button", { onclick: () => { hideToast(); action.run(); } }, action.label) : null);
+  $toast.replaceChildren(h("span", {}, text), action ? h("button", { class: "link", onclick: () => { hideToast(); action.run(); } }, action.label) : null);
   $toast.hidden = false;
   clearTimeout(toast.t);
   toast.t = setTimeout(hideToast, action ? 5000 : 2500);
 }
 function hideToast() { $toast.hidden = true; }
 
+const skeleton = () => h("div", { class: "skeleton", "aria-busy": "true", "aria-label": "Loading" }, h("span"), h("span"), h("span"));
+
 function message(title, text, button) {
   if (tg) tg.BackButton.hide();
   $app.replaceChildren(h("section", { class: "message" },
-    h("h1", {}, title), h("p", {}, text), button ? h("button", { class: "capsule", onclick: button.run }, button.label) : null));
+    h("h1", {}, title), h("p", {}, text), button ? h("button", { class: "btn primary", onclick: button.run }, button.label) : null));
 }
 
 function showError(e, retry) {
-  if (e.status === 401) return message("Session expired", "Close this window and open it again from the pinned 📝 Open review message.");
+  if (e.status === 401) return message("Session expired", "Close this window and open it again from the pinned Review message.");
   if (e.status === 403) return message("Not allowed", "Only members of the review group can review conversations.");
   if (e.status === 0) return message("No connection", "Can't reach the review server. Check your internet and try again.", { label: "Try again", run: retry });
   message("Something went wrong", "The review server couldn't load this. Try again in a minute.", { label: "Try again", run: retry });
@@ -69,14 +105,16 @@ function showError(e, retry) {
 async function loadList() {
   const data = await (await api("/api/conversations")).json();
   state.items = data.items;
+  state.total = data.total ?? data.items.length;
   state.ready = data.ready;
-  state.teamDone = data.team_done;
+  state.teamPipeline = data.team_pipeline ?? 0;
   state.myToday = data.my_today;
 }
 
-const isDoneByMe = (i) => i.mine.pipeline && i.mine.gemma;
+// a conversation is still open for me until every available result has my verdict
+const isDone = (i) => i.mine.pipeline && (i.mine.gemma || !i.ready);
 function queue() {
-  const open = state.items.filter((i) => i.ready && !isDoneByMe(i));
+  const open = state.items.filter((i) => !isDone(i));
   return [...open.filter((i) => !state.skipped.includes(i.id)), ...open.filter((i) => state.skipped.includes(i.id))];
 }
 
@@ -121,7 +159,7 @@ async function flush() {
       state.details.delete(v.id);
     } catch (e) {
       if (e.status === 401 || e.status === 403) { state.pending = []; flush.busy = false; return showError(e); }
-      toast("Couldn't save yet — retrying…");
+      toast("Couldn't save yet, retrying…");
       await new Promise((r) => setTimeout(r, 5000));
     }
   }
@@ -129,32 +167,33 @@ async function flush() {
   if (tg && tg.disableClosingConfirmation) tg.disableClosingConfirmation();
 }
 
-// ---------- review screen ----------
-function progressHeader() {
-  const left = queue().length;
-  const total = state.items.filter((i) => i.ready).length;
-  const pct = total ? Math.round(((total - left) / total) * 100) : 0;
-  const fill = h("span");
-  fill.style.width = `${pct}%`; // CSSOM, not a style attribute, so the CSP allows it
+// ---------- shared pieces ----------
+function topbar(active) {
+  const waiting = state.total - state.ready;
+  const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
+  const tab = (key, text, run) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: run }, text);
   return h("header", { class: "top" },
-    h("div", { class: "row" },
-      h("p", { class: "lead" }, left ? `${left} left for you` : "All done"),
-      h("button", { class: "plain", onclick: showList }, "All conversations")),
-    h("div", { class: "bar", role: "progressbar", "aria-valuenow": pct, "aria-valuemin": 0, "aria-valuemax": 100,
-      "aria-label": "Your progress" }, fill),
-    h("p", { class: "foot" }, `Team: ${state.teamDone} of ${state.ready} done`));
+    h("div", { class: "row between" },
+      h("h1", {}, "Review"),
+      h("div", { class: "seg", role: "group", "aria-label": "View" },
+        tab("queue", "Queue", () => showReview(queue()[0]?.id)), tab("all", "All conversations", showList))),
+    h("p", { class: "stats" }, stat(queue().length, "for you"), stat(state.teamPipeline, "checked by team"), stat(waiting, "waiting for Gemma")));
 }
+
+const badge = (v, text) => h("span", { class: `badge ${v || "todo"}` }, v === "ok" ? icon("check") : v === "bad" ? icon("cross") : null, text);
+const verdictText = (v) => (v === "ok" ? "Correct" : v === "bad" ? "Wrong" : "To review");
 
 function player(id) {
   const audio = new Audio();
-  const btn = h("button", { class: "play", disabled: true, "aria-label": "Play recording" }, "Loading recording…");
+  const btn = h("button", { class: "play", disabled: true, "aria-label": "Play recording" }, icon("play"));
   const speed = h("button", { class: "chip", disabled: true, "aria-label": "Playback speed" }, "1×");
   const fill = h("span");
   const track = h("div", { class: "track", "aria-hidden": "true" }, fill);
-  const time = h("span", { class: "foot" }, "");
-  const fmt = (s) => (isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "–:––");
+  const time = h("span", { class: "time" }, "0:00");
+  const fmt = (s) => (isFinite(s) ? `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}` : "0:00");
   const paint = () => {
-    btn.textContent = audio.paused ? "▶  Play recording" : "❚❚  Pause";
+    btn.replaceChildren(icon(audio.paused ? "play" : "pause"));
+    btn.setAttribute("aria-label", audio.paused ? "Play recording" : "Pause recording");
     fill.style.width = audio.duration ? `${(audio.currentTime / audio.duration) * 100}%` : "0";
     time.textContent = `${fmt(audio.currentTime)} / ${fmt(audio.duration)}`;
   };
@@ -169,22 +208,24 @@ function player(id) {
     if (audio.duration) audio.currentTime = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * audio.duration;
   });
   getAudio(id).then((url) => { audio.src = url; btn.disabled = speed.disabled = false; paint(); })
-    .catch(() => { btn.textContent = "Recording unavailable"; });
-  const box = h("section", { class: "player" }, btn, h("div", { class: "row" }, track, time, speed));
+    .catch(() => { time.textContent = "Recording unavailable"; });
+  const box = h("section", { class: "player" }, btn, track, time, speed);
   box.stop = () => audio.pause();
   return box;
 }
 
-function transcript(result) {
-  if (!result) return h("p", { class: "foot" }, "Result not ready yet.");
+function transcript(result, pending) {
+  if (!result) return h("p", { class: "note" }, pending);
   if (result.error) return h("p", { class: "warn" }, "This result failed: " + result.error);
+  const num = (s) => (String(s || "?").match(/\d+/) || ["?"])[0];
   return h("div", {},
-    h("p", { class: "meta" }, h("span", { class: "pill" }, result.sentiment || "—"), result.secs ? h("span", { class: "foot" }, `took ${Math.round(result.secs)} s`) : null),
-    result.summary ? h("p", { class: "summary" }, result.summary) : null,
-    h("ol", { class: "turns" }, (result.turns || []).map((t) => {
-      const extra = t.english && t.english !== t.text ? ` {${t.english}}` : "";
-      return h("li", {}, h("b", {}, `${t.speaker || "?"}${t.sentiment ? ` (${t.sentiment})` : ""}`), ` ${t.text || ""}${extra}`);
-    })));
+    h("p", { class: "summary" }, h("span", { class: "mood" }, result.sentiment || "No mood"), result.summary ? ` ${result.summary}` : ""),
+    h("ol", { class: "turns" }, (result.turns || []).map((t) => h("li", {},
+      h("span", { class: "spk", title: t.speaker || "" }, num(t.speaker)),
+      h("div", {},
+        h("p", { class: "said" }, t.text || ""),
+        t.english && t.english !== t.text ? h("p", { class: "en" }, t.english) : null,
+        t.sentiment ? h("p", { class: "tone" }, t.sentiment) : null)))));
 }
 
 function reasonSheet(onSave) {
@@ -193,72 +234,69 @@ function reasonSheet(onSave) {
   const close = () => sheet.remove();
   const sheet = h("div", { class: "sheet-bg", onclick: (e) => e.target === sheet && close() },
     h("div", { class: "sheet", role: "dialog", "aria-modal": "true", "aria-labelledby": "sheet-title" },
-      h("div", { class: "grabber", "aria-hidden": "true" }),
       h("h2", { id: "sheet-title" }, "What was wrong?"),
-      h("p", { class: "foot" }, "Tap all that apply."),
+      h("p", { class: "note" }, "Tap all that apply."),
       h("div", { class: "chips" }, REASONS.map((r) => h("button", {
         class: "chip", "aria-pressed": "false",
         onclick: (e) => { picked.has(r) ? picked.delete(r) : picked.add(r); e.currentTarget.setAttribute("aria-pressed", String(picked.has(r))); },
       }, r))),
       other,
       h("div", { class: "row" },
-        h("button", { class: "capsule ghost", onclick: close }, "Cancel"),
-        h("button", { class: "capsule bad", onclick: () => { close(); onSave([...picked, other.value.trim()].filter(Boolean).join(", ")); } }, "Save as wrong"))));
+        h("button", { class: "btn quiet", onclick: close }, "Cancel"),
+        h("button", { class: "btn bad solid", onclick: () => { close(); onSave([...picked, other.value.trim()].filter(Boolean).join(", ")); } }, "Save as wrong"))));
   document.body.append(sheet);
   sheet.querySelector(".chip").focus();
 }
 
-async function showReview(id, startStep) {
+// ---------- review screen ----------
+async function showReview(id, startSys) {
   hideToast();
   const q = queue();
   const row = state.items.find((i) => i.id === id) || q[0];
   if (!row) return showDone();
   if (tg) tg.BackButton.hide();
-  $app.replaceChildren(progressHeader(), h("div", { class: "skeleton", "aria-busy": "true", "aria-label": "Loading" }, h("span"), h("span"), h("span")));
+  $app.replaceChildren(topbar("queue"), skeleton());
   let d;
   try {
     d = await getDetail(row.id);
   } catch (e) {
-    return showError(e, () => showReview(row.id));
+    return showError(e, () => showReview(row.id, startSys));
   }
   prefetch(q.find((i) => i.id !== row.id)?.id);
-  let step = startStep ?? (row.mine.pipeline && !row.mine.gemma ? 1 : 0);
+  let cur = startSys || (!row.mine.pipeline ? "pipeline" : row.ready && !row.mine.gemma ? "gemma" : "pipeline");
   const audio = player(row.id);
-  const body = h("section", { class: "step" });
+  const tabs = h("div", { class: "tabs", role: "tablist" });
+  const panel = h("section", { class: "panel", role: "tabpanel" });
+  const verdict = h("div", { class: "verdict" });
   const done = [];
-  let compare = false;
 
   const paint = () => {
-    const [sys, label] = STEPS[step];
-    const other = STEPS[1 - step];
-    body.replaceChildren(
-      h("p", { class: "foot" }, `Step ${step + 1} of 2`),
-      h("h2", { tabindex: "-1" }, `Is the ${label} text correct?`),
-      h("p", { class: "hint" }, "Listen to the recording, then check who spoke, what was said and the mood."),
-      compare
-        ? h("div", { class: "cols" },
-            h("div", { class: "group" }, h("h3", {}, label), transcript(d[sys])),
-            h("div", { class: "group" }, h("h3", {}, other[1]), transcript(d[other[0]])))
-        : h("div", { class: "group" }, transcript(d[sys])),
-      h("button", { class: "plain", onclick: () => { compare = !compare; paint(); } }, compare ? "Hide the other result" : `Compare with ${other[1]}`),
-      h("button", { class: "plain muted", onclick: skip }, "Skip — can't hear it"));
+    const waitingForGemma = cur === "gemma" && !row.ready;
+    tabs.replaceChildren(...SYSTEMS.map((s) => h("button", {
+      class: "tab", role: "tab", "aria-selected": String(s === cur), onclick: () => { cur = s; paint(); },
+    }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)));
+    panel.replaceChildren(transcript(d[cur], "Gemma 4 hasn't processed this conversation yet. It will come back to your queue for the Gemma 4 check."));
     verdict.replaceChildren(
-      h("button", { class: "capsule bad", onclick: () => reasonSheet((note) => vote("bad", note)) }, "👎  Wrong"),
-      h("button", { class: "capsule ok", onclick: () => vote("ok", "") }, "👍  Correct"));
-    body.querySelector("h2").focus({ preventScroll: true });
+      h("div", { class: "row between" },
+        h("p", { class: "ask" }, waitingForGemma ? "Nothing to check yet" : `Is the ${LABEL[cur]} transcript correct?`),
+        h("button", { class: "link", onclick: skip }, "Skip")),
+      waitingForGemma ? null : h("div", { class: "row" },
+        h("button", { class: "btn bad", onclick: () => reasonSheet((note) => vote("bad", note)) }, icon("cross"), "Wrong"),
+        h("button", { class: "btn ok solid", onclick: () => vote("ok", "") }, icon("check"), "Correct")));
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
-  const vote = (verdictValue, note) => {
-    const sys = STEPS[step][0];
-    saveVote(row.id, sys, verdictValue, note);
-    done.push(sys);
-    haptic(verdictValue === "ok" ? "success" : "warning");
-    if (step === 0 && !row.mine.gemma) { step = 1; return paint(); }
+  const vote = (v, note) => {
+    const had = row.mine[cur];
+    saveVote(row.id, cur, v, note);
+    if (!had) done.push(cur);
+    haptic(v === "ok" ? "success" : "warning");
+    const other = cur === "pipeline" ? "gemma" : "pipeline";
+    if (!row.mine[other] && (other === "pipeline" || row.ready)) { cur = other; return paint(); }
     audio.stop();
-    state.myToday += 1;
+    if (done.length) state.myToday += 1;
     const next = queue()[0];
-    toast("Saved ✓", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); showReview(row.id, 0); } });
+    if (done.length) toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); showReview(row.id, "pipeline"); } });
     next ? showReview(next.id) : showDone();
   };
 
@@ -270,56 +308,64 @@ async function showReview(id, startStep) {
     next ? showReview(next.id) : showDone();
   };
 
-  const verdict = h("div", { class: "verdict" });
-  $app.replaceChildren(progressHeader(),
-    h("section", { class: "who" }, h("h1", {}, `${icon(row.kind)} ${row.who}`), h("p", { class: "foot" }, `${row.store} · ${when(row)}`)),
-    audio, body, verdict);
+  $app.replaceChildren(topbar("queue"),
+    h("section", { class: "who" },
+      h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
+      h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, `${fmtDate(row.date)}, ${row.time}`), row.duration ? h("span", {}, row.duration) : null)),
+    audio, tabs, panel, verdict);
   paint();
 }
 
 function showDone() {
   if (tg) tg.BackButton.hide();
-  const waiting = state.items.filter((i) => !i.ready).length;
-  $app.replaceChildren(progressHeader(), h("section", { class: "message" },
-    h("h1", {}, "All done 🎉"),
-    h("p", {}, `You reviewed ${state.myToday} conversation${state.myToday === 1 ? "" : "s"} today.`),
-    waiting ? h("p", { class: "foot" }, `${waiting} more will appear here once Gemma 4 has processed them.`) : null,
-    h("button", { class: "capsule", onclick: start }, "Check for new ones"),
-    h("button", { class: "plain", onclick: showList }, "See all conversations")));
+  $app.replaceChildren(topbar("queue"), h("section", { class: "message" },
+    h("h1", {}, "You're up to date"),
+    h("p", {}, state.myToday ? `You've checked ${state.myToday} conversation${state.myToday === 1 ? "" : "s"} today.` : "Nothing is waiting for you right now."),
+    h("p", { class: "note" }, "New conversations appear here as they're processed."),
+    h("button", { class: "btn primary", onclick: start }, "Refresh"),
+    h("button", { class: "link", onclick: showList }, "See all conversations")));
 }
 
-// ---------- list (for managers / changing a vote) ----------
+// ---------- all conversations ----------
 function showList() {
   hideToast();
   if (tg) tg.BackButton.show();
-  const mark = (v) => (v === "ok" ? "👍" : v === "bad" ? "👎" : "—");
-  $app.replaceChildren(
-    h("header", { class: "top" }, h("h1", {}, "All conversations"), h("p", { class: "foot" }, `Team: ${state.teamDone} of ${state.ready} done · you: 👍/👎 per result`)),
-    h("ul", { class: "list group" }, state.items.map((i) => h("li", {},
-      h("button", { onclick: () => (i.ready ? showReview(i.id, 0) : toast("Gemma 4 hasn't processed this one yet")) },
-        h("span", { class: "who-line" }, `${icon(i.kind)} ${i.who}`),
-        h("span", { class: "foot" }, when(i)),
-        h("span", { class: "marks" }, i.ready ? `Pipeline ${mark(i.mine.pipeline)} · Gemma ${mark(i.mine.gemma)}` : "Waiting for Gemma 4"))))));
+  const filters = [["all", "All"], ["call", "Calls"], ["in-store", "In-store"], ["todo", "To review"]];
+  const keep = (i) => state.filter === "all" || (state.filter === "todo" ? !isDone(i) : i.kind === state.filter);
+  const days = new Map();
+  for (const i of state.items.filter(keep)) days.set(i.date, [...(days.get(i.date) || []), i]);
+  const rows = [...days].map(([date, list]) => h("section", { class: "day" },
+    h("h2", {}, dayLabel(date)),
+    h("ul", { class: "list" }, list.map((i) => h("li", {}, h("button", { onclick: () => showReview(i.id) },
+      h("span", { class: "who-line" }, i.who),
+      h("span", { class: "note" }, `${i.kind === "call" ? "Call" : "In-store"}, ${i.time}${i.duration ? `, ${i.duration}` : ""}`),
+      h("span", { class: "marks" },
+        h("span", {}, "Pipeline ", badge(i.mine.pipeline, verdictText(i.mine.pipeline))),
+        h("span", {}, "Gemma 4 ", i.ready ? badge(i.mine.gemma, verdictText(i.mine.gemma)) : h("span", { class: "badge todo" }, "Pending")))))))));
+  $app.replaceChildren(topbar("all"),
+    h("div", { class: "chips filters", role: "group", "aria-label": "Filter" },
+      filters.map(([k, text]) => h("button", { class: "chip", "aria-pressed": String(state.filter === k), onclick: () => { state.filter = k; showList(); } }, text))),
+    ...(rows.length ? rows : [h("p", { class: "note pad" }, "No conversations match this filter.")]));
 }
 
 // ---------- start ----------
 async function start() {
-  if (!INIT || !API) return message("Open from Telegram", "Open this page from the pinned 📝 Open review message in the Telegram group.");
+  if (!INIT || !API) return message("Open from Telegram", "Open this page from the pinned Review message in the Telegram group.");
   try { state.skipped = JSON.parse(sessionStorage.getItem("skipped") || "[]"); } catch {}
-  $app.replaceChildren(h("div", { class: "skeleton", "aria-busy": "true", "aria-label": "Loading" }, h("span"), h("span"), h("span")));
+  $app.replaceChildren(skeleton());
   try {
     await loadList();
   } catch (e) {
     return showError(e, start);
   }
-  const target = openId && state.items.find((i) => i.id === openId && i.ready);
-  target ? showReview(target.id, 0) : showReview(queue()[0]?.id);
+  const target = openId && state.items.find((i) => i.id === openId);
+  target ? showReview(target.id) : queue().length ? showReview(queue()[0].id) : showDone();
 }
 
 if (tg) {
   tg.ready();
   tg.expand();
   if (tg.disableVerticalSwipes) tg.disableVerticalSwipes();
-  tg.BackButton.onClick(() => showReview(queue()[0]?.id));
+  tg.BackButton.onClick(() => (queue().length ? showReview(queue()[0].id) : showDone()));
 }
 start();
