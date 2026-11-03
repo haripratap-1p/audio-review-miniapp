@@ -2,8 +2,9 @@
 const tg = window.Telegram && window.Telegram.WebApp;
 const params = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || params.get("tgWebAppStartParam") || "";
-const [sub, openId] = startParam.split("__");
-const API = sub ? `https://${sub}.trycloudflare.com` : "";
+const [startSub, openId] = startParam.split("__");
+const sub = startSub || params.get("api") || "";  // menu button passes the tunnel as ?api=
+const API = /^[a-z0-9-]+$/.test(sub) ? `https://${sub}.trycloudflare.com` : "";
 const INIT = (tg && tg.initData) || "";
 const $app = document.getElementById("app");
 const $toast = document.getElementById("toast");
