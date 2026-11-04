@@ -148,3 +148,21 @@ def test_switched_off_type_shows_only_posted(galaxy: dict, set_env, settings) ->
     assert [c.key for c in scan()] == [clip]  # calls off and none posted
     assert all(not set_env(CALLS=v).calls_on for v in ("false", "0", "no", "OFF"))
     assert set_env(CALLS="true").calls_on
+
+
+def test_scan_reuses_parsed_files_until_one_changes(galaxy: dict, monkeypatch: pytest.MonkeyPatch) -> None:
+    # every API call scans; result files must be parsed once, not on every request
+    day = galaxy["results"] / "Galaxy" / "2026-11-02"
+    (day / "audio").mkdir()
+    (day / "audio" / "919800000001_20261102-101500.m4a").write_bytes(b"a")
+    first = scan([])
+    loads = []
+    real = conversations._load
+    monkeypatch.setattr(conversations, "_load", lambda p: loads.append(p) or real(p))
+    assert [c.id for c in scan()] == [c.id for c in first] and get(galaxy["a"], ASHA) and recording(galaxy["a"])
+    assert loads == [], "unchanged files were read again"
+    assert recording(galaxy["a"]) == day / "audio" / "919800000001_20261102-101500.m4a"
+    (day / "919800000002_20261102-111500.gemma.json").write_text(json.dumps({"turns": [], "error": "late"}))
+    assert next(c for c in scan() if c.id == galaxy["b"]).results["gemma"]["error"] == "late"
+    (day / "919800000005_20261102-120000.json").write_text(json.dumps({"conversation": "[Speaker_01]: new"}))
+    assert len(scan()) == 4 and loads

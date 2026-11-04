@@ -128,14 +128,61 @@ def _posted() -> set:
     return set(json.loads(f.read_text())) if f.exists() else set()
 
 
-def scan(rows: list | None = None) -> list[Conversation]:
-    # one pass over live_results, newest arrival first; rows default to every review in the db
+_scan_lock = threading.Lock()
+_cache: dict = {}  # key -> (fingerprint + settings), convs -> list, by_id -> {id: Conversation}
+
+
+def _fingerprint(results: Path) -> frozenset:
+    # every result and audio file's (path, mtime, size): any new, rewritten or touched file changes it
+    out = []
+    for day in results.glob("*/*"):
+        for d in (day, day / "audio"):
+            try:
+                with os.scandir(d) as it:
+                    out += [(e.path, s.st_mtime_ns, s.st_size) for e in it if e.is_file() for s in [e.stat()]]
+            except (FileNotFoundError, NotADirectoryError):
+                pass
+    return frozenset(out)
+
+
+def _audio_files(d: Path) -> dict:
+    # one listing per day folder instead of a glob per conversation
+    out: dict = {}
+    try:
+        for name in sorted(os.listdir(d)):
+            out.setdefault(name.split(".", 1)[0], d / name)
+    except FileNotFoundError:
+        pass
+    return out
+
+
+def _files() -> tuple[list, dict]:
+    # result files parsed once and reused until a file under live_results changes; reviews are attached per call
     st = get_settings()
+    posted = frozenset() if st.calls_on and st.instore_on else frozenset(_posted())
+    key = (st.results, st.post_from, st.calls_on, st.instore_on, posted, _fingerprint(st.results))
+    with _scan_lock:
+        if _cache.get("key") != key:
+            convs = _read(st, posted)
+            _cache.update(key=key, convs=convs, by_id={c.id: c for c in convs})
+        return _cache["convs"], _cache["by_id"]
+
+
+def _with_reviews(c: Conversation, rows: list) -> Conversation:
+    return replace(c, reviews={s: [r for r in rows if r["system"] == s] for s in SYSTEMS})
+
+
+def scan(rows: list | None = None) -> list[Conversation]:
+    # newest arrival first; rows default to every review in the db
     by_conv: dict = {}
     for r in all_rows() if rows is None else rows:
-        by_conv.setdefault((r["conv"], r["system"]), []).append(r)
-    posted = set() if st.calls_on and st.instore_on else _posted()
+        by_conv.setdefault(r["conv"], []).append(r)
+    return [_with_reviews(c, by_conv.get(c.id, [])) for c in _files()[0]]
+
+
+def _read(st: Any, posted: frozenset) -> list[Conversation]:
     out = []
+    audio_dirs: dict = {}
     for js in st.results.glob("*/*/*.json"):
         if "." in js.stem:  # model outputs are <stem>.<model>.json
             continue
@@ -151,7 +198,9 @@ def scan(rows: list | None = None) -> list[Conversation]:
         cid = conv_id(key)
         models = {s: _load(js.with_name(f"{js.stem}.{s}.json")) for s in SYSTEMS[1:]}
         pipeline = {"sentiment": d.get("sentiment", ""), "summary": d.get("summary", "")}
-        audio = source_audio(js)
+        if js.parent not in audio_dirs:
+            audio_dirs[js.parent] = _audio_files(js.parent / "audio")
+        audio = audio_dirs[js.parent].get(js.stem)
         out.append(
             Conversation(
                 id=cid,
@@ -172,14 +221,17 @@ def scan(rows: list | None = None) -> list[Conversation]:
                     **{s: _model_result(g) for s, g in models.items()},
                 },
                 na=[s for s, g in models.items() if (g or {}).get("skipped") == "language not supported"],
-                reviews={s: by_conv.get((cid, s), []) for s in SYSTEMS},
+                reviews={s: [] for s in SYSTEMS},
             )
         )
     return sorted(out, key=lambda c: (c.arrived, c.sort), reverse=True)
 
 
 def _find(cid: str, rows: list | None = None) -> Conversation | None:
-    return next((c for c in scan(rows) if c.id == cid), None)
+    c = _files()[1].get(cid)
+    if not c:
+        return None
+    return _with_reviews(c, [r for r in (all_rows() if rows is None else rows) if r["conv"] == cid])
 
 
 def _tally(vs: list, uid: int) -> dict:
