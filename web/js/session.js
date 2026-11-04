@@ -68,7 +68,7 @@ export function createSession({ fetch, base = "", initData = "", storage = null,
         } else if (status === 400 || status === 409) {
           queue.shift();
           if (v.verdict !== "clear") apply({ ...v, verdict: "clear" });
-          emit({ toast: status === 409 ? error || "This result isn't ready" : `Couldn't save this review: ${error || "invalid"}` });
+          emit({ toast: status === 409 ? error || "This result isn't ready" : `Couldn't save this review: ${error || "invalid"}`, rollback: v.id });
         } else {
           emit({ toast: "Couldn't save yet, retrying…" });
           await wait(retryMs);

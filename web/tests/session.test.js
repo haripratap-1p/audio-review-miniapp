@@ -103,7 +103,7 @@ test("403 also keeps the votes", async () => {
 test("409 drops the vote, rolls it back and shows the server message", async () => {
   const { s, events, state, storage } = setup({ replies: [409] });
   await s.submit("c1", "pipeline", "ok", "");
-  assert.ok(events.some((e) => e.toast === "This result isn't ready"));
+  assert.ok(events.some((e) => e.toast === "This result isn't ready" && e.rollback === "c1"));
   assert.equal(s.pending(), 0);
   assert.equal(state.items[0].mine.pipeline, null);
   assert.equal(state.myToday, 0);

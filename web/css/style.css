@@ -69,6 +69,7 @@ button:disabled { opacity: 0.5; cursor: default; }
 
 /* conversation header */
 .who { margin-bottom: var(--s3); }
+.hint { margin: var(--s2) 0 var(--s3); }
 .kind { font-size: 13px; font-weight: 600; color: var(--accent); background: var(--accent-tint); padding: 2px var(--s3); border-radius: 12px; }
 .meta { display: flex; flex-wrap: wrap; gap: 0 var(--s4); color: var(--quiet); font-size: 13px; margin-top: var(--s1); }
 

@@ -94,6 +94,9 @@ function reviewArea(row, d, sys, after) {
   };
 }
 
+// client view only: one line on how to review
+const hint = () => (state.role === "general" ? h("p", { class: "note hint" }, "Listen, mark any wrong lines, then press Correct or Wrong.") : null);
+
 export async function renderReview(id) {
   const q = queue();
   const row = state.items.find((i) => i.id === id) || q[0];
@@ -143,7 +146,7 @@ export async function renderReview(id) {
     next ? go("review", next.id) : go("done");
   };
 
-  $app.replaceChildren(topbar("queue"),
+  $app.replaceChildren(topbar("queue"), hint(),
     h("section", { class: "who" },
       h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
       h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, whenText(row)), row.duration ? h("span", {}, row.duration) : null)),
@@ -196,7 +199,7 @@ export async function renderDesk(id) {
     toast("Saved", { label: "Undo", run: () => { done.forEach((s) => session.undo(row.id, s)); go("review", row.id); } });
   };
   paint();
-  main.replaceChildren(
+  main.replaceChildren(hint(),
     h("section", { class: "who" },
       h("div", { class: "row between" }, h("h2", {}, row.who), h("span", { class: "kind" }, row.kind === "call" ? "Call" : "In-store")),
       h("p", { class: "meta" }, h("span", {}, row.store), h("span", {}, whenText(row)), row.duration ? h("span", {}, row.duration) : null)),

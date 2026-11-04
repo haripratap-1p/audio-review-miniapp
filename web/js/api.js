@@ -1,6 +1,7 @@
 // review server calls, list and detail loading, and the review session
 import { tg, state, setLabels } from "./state.js?v=__V__";
-import { toast, message } from "./dom.js?v=__V__";
+import { $app, toast, message } from "./dom.js?v=__V__";
+import { go } from "./router.js?v=__V__";
 import { createSession } from "./session.js?v=__V__";
 
 const params = new URLSearchParams(location.search);
@@ -73,6 +74,8 @@ export const session = createSession({
   userId: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "",
 });
 session.onChange((e) => {
+  // a rejected vote was rolled back: repaint it if that conversation is on screen
+  if (e.rollback && e.rollback === state.current && $app.querySelector(".who")) go("review", state.current);
   if (e.toast) toast(e.toast);
   if (e.expired) message("Reviews waiting", `Session expired: close and reopen from the pinned message; ${e.expired} review${e.expired === 1 ? "" : "s"} will be sent.`);
 });

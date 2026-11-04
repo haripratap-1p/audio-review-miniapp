@@ -1,4 +1,4 @@
-// Telegram Mini App: review store conversations. General users see our audio pipeline; the Tech team also sees Gemma and Gemini.
+// Telegram Mini App: review store conversations. The client view shows our audio pipeline; tech and cost-group members see every model.
 import { tg, state, queue } from "./state.js?v=__V__";
 import { $app, skeleton, message, showError, hideToast } from "./dom.js?v=__V__";
 import { initTheme } from "./theme.js?v=__V__";
