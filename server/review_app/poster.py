@@ -6,7 +6,7 @@ import time
 from pathlib import Path
 
 from .config import STEM, get_settings
-from .conversations import audio_for, conv_id
+from .conversations import audio_for, conv_id, kind_of
 from .launcher import tunnel_sub
 from .telegram import call, launch_url
 
@@ -14,7 +14,7 @@ EMOJI = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
 
 
 def state_file() -> Path:
-    return get_settings().results.parent / "telegram_posted.json"
+    return get_settings().posted_file
 
 
 def msgids_file() -> Path:
@@ -87,6 +87,12 @@ def call_time(stem: str) -> str:
     return "".join(m.groups()[1:6]) if m else ""  # to the minute, as posted so far
 
 
+def skip(stem: str) -> bool:
+    # before POST_FROM by call date, or its type (CALLS / INSTORE) is switched off
+    st = get_settings()
+    return call_date(stem) < st.poster_call_date_from or not st.kind_on(kind_of(stem))
+
+
 def main() -> None:
     st = get_settings()
     if not st.token or not st.chat:
@@ -99,7 +105,7 @@ def main() -> None:
             if "." in js.stem:  # model outputs (<stem>.<model>.json) stay out of the group
                 continue
             key = f"{js.parent.parent.name}/{js.stem}"
-            if call_date(js.stem) < st.poster_call_date_from:
+            if skip(js.stem):
                 continue
             try:
                 if key not in posted:

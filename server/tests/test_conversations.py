@@ -136,3 +136,15 @@ def test_recording_extracts_sound_once(galaxy: dict, monkeypatch: pytest.MonkeyP
     assert recording(clip.id) == day / "20261102_154507.m4a" and recording(clip.id).read_bytes() == b"sound"
     assert len(runs) == 1 and not list(day.glob("*.partial.m4a"))
     assert conversations.recording("nope") is None
+
+
+def test_switched_off_type_shows_only_posted(galaxy: dict, set_env, settings) -> None:
+    clip = "Galaxy/20261102_154507"
+    st = set_env(INSTORE="false")
+    assert not st.instore_on and st.calls_on and [c.kind for c in scan()] == ["call", "call"]
+    st.posted_file.write_text(json.dumps([clip]))
+    assert clip in [c.key for c in scan()] and len(scan()) == 3
+    st = set_env(INSTORE="true", CALLS="off")
+    assert [c.key for c in scan()] == [clip]  # calls off and none posted
+    assert all(not set_env(CALLS=v).calls_on for v in ("false", "0", "no", "OFF"))
+    assert set_env(CALLS="true").calls_on

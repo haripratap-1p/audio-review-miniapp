@@ -37,10 +37,22 @@ class Settings:
     judge_cap: int  # judge requests per run
     judge_price_in: float  # USD per 1M tokens
     judge_price_out: float  # USD per 1M tokens, thinking included
+    calls_on: bool  # CALLS=false: no new call posts; the app keeps only calls already posted
+    instore_on: bool  # INSTORE=false: the same for in-store clips
+    phone_addr: str  # store phone (Termux sshd) host:port, checked while calls are on
+    jetson_addr: str  # in-store Jetson host:port, checked while in-store is on
+    alert_tag: str  # who the device-offline alerts tag in the client group
 
     @property
     def tunnel_log(self) -> Path:
         return self.home / "review_tunnel.log"
+
+    @property
+    def posted_file(self) -> Path:
+        return self.results.parent / "telegram_posted.json"  # the poster's record of what reached the group
+
+    def kind_on(self, kind: str) -> bool:
+        return self.calls_on if kind == "call" else self.instore_on
 
     @property
     def roles_file(self) -> Path:
@@ -67,7 +79,16 @@ class Settings:
             judge_cap=int(env.get("JUDGE_DAILY_CAP", "300")),
             judge_price_in=float(env.get("JUDGE_PRICE_IN", "0.30")),
             judge_price_out=float(env.get("JUDGE_PRICE_OUT", "2.50")),
+            calls_on=_on(env.get("CALLS", "true")),
+            instore_on=_on(env.get("INSTORE", "true")),
+            phone_addr=env.get("PHONE_ADDR", "100.64.0.166:8022"),
+            jetson_addr=env.get("JETSON_ADDR", "100.64.0.82:22"),
+            alert_tag=env.get("ALERT_TAG", "@Nikhil_mirajkar"),
         )
+
+
+def _on(text: str) -> bool:
+    return text.strip().lower() not in ("false", "0", "no", "off")
 
 
 @lru_cache(maxsize=1)

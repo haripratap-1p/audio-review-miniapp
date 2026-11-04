@@ -34,6 +34,11 @@ ENV_VARS = (
     "JUDGE_DAILY_CAP",
     "JUDGE_PRICE_IN",
     "JUDGE_PRICE_OUT",
+    "CALLS",
+    "INSTORE",
+    "PHONE_ADDR",
+    "JETSON_ADDR",
+    "ALERT_TAG",
 )
 TOKEN = "123:abc"
 

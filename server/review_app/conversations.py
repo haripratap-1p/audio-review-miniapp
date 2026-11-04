@@ -118,12 +118,23 @@ def _arrived(js: Path, audio: Path | None) -> str:
     return datetime.fromtimestamp(t, IST).isoformat(timespec="seconds")
 
 
+def kind_of(stem: str) -> str:
+    m = STEM.match(stem)
+    return "call" if m and m[1] else "in-store"
+
+
+def _posted() -> set:
+    f = get_settings().posted_file
+    return set(json.loads(f.read_text())) if f.exists() else set()
+
+
 def scan(rows: list | None = None) -> list[Conversation]:
     # one pass over live_results, newest arrival first; rows default to every review in the db
     st = get_settings()
     by_conv: dict = {}
     for r in all_rows() if rows is None else rows:
         by_conv.setdefault((r["conv"], r["system"]), []).append(r)
+    posted = set() if st.calls_on and st.instore_on else _posted()
     out = []
     for js in st.results.glob("*/*/*.json"):
         if "." in js.stem:  # model outputs are <stem>.<model>.json
@@ -131,10 +142,12 @@ def scan(rows: list | None = None) -> list[Conversation]:
         m = STEM.match(js.stem)
         if not m or js.parent.name < st.post_from:  # folder = day it reached us; file name = phone's call time
             continue
+        key, kind = f"{js.parent.parent.name}/{js.stem}", kind_of(js.stem)
+        if not st.kind_on(kind) and key not in posted:
+            continue  # switched off: show only what already reached the group
         d = _load(js)
         if not d or not (d.get("conversation") or "").strip():
             continue  # silence: nothing to review
-        key = f"{js.parent.parent.name}/{js.stem}"
         cid = conv_id(key)
         models = {s: _load(js.with_name(f"{js.stem}.{s}.json")) for s in SYSTEMS[1:]}
         pipeline = {"sentiment": d.get("sentiment", ""), "summary": d.get("summary", "")}
@@ -144,7 +157,7 @@ def scan(rows: list | None = None) -> list[Conversation]:
                 id=cid,
                 key=key,
                 store=js.parent.parent.name,
-                kind="call" if m[1] else "in-store",
+                kind=kind,
                 who=(m[1] or "In-store").replace("_", " ").strip(),
                 date=f"{m[2]}-{m[3]}-{m[4]}",
                 time=f"{m[5]}:{m[6]}",

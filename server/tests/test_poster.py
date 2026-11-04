@@ -6,7 +6,7 @@ from conftest import FakeTelegram
 
 from review_app.config import Settings
 from review_app.conversations import conv_id
-from review_app.poster import call_date, call_time, card, post, review_button
+from review_app.poster import call_date, call_time, card, post, review_button, skip
 
 
 def test_call_date() -> None:
@@ -71,3 +71,12 @@ def test_post_long_transcript_as_document(settings: Settings, set_env, tg: FakeT
     post("Galaxy/20261102_154507", js, set())
     assert tg.methods() == ["sendMessage", "sendDocument"]  # no audio: card as text
     assert tg.calls[1][1]["document"] == Path(js.with_suffix(".txt")) and "reply_markup" not in tg.calls[1][1]
+
+
+def test_skip_switched_off_types(set_env) -> None:
+    call, clip = "919620356029_20261028-104047", "20261102_154507"
+    assert not skip(call) and not skip(clip)
+    set_env(INSTORE="false")
+    assert skip(clip) and not skip(call)
+    set_env(INSTORE="true", CALLS="false")
+    assert skip(call) and not skip(clip)
