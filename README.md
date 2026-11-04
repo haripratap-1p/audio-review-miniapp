@@ -3,17 +3,20 @@
 Telegram Mini App for human review of store conversations (calls and in-store CCTV audio). Reviewers play the
 recording, read each system's transcript, mark lines ✓/✗, and submit Correct/Wrong for the whole result.
 
-- **Client group** ("Audio Pipeline calls"): every member sees only the audio pipeline.
-- **Cost group** ("Gemini Cost for Audio Pipeline"): opened from its pinned card, members see every model side by
-  side plus the Benchmark; the owner also gets the Team page.
+- **Client group** ("Audio Pipeline calls"): the analysis team and stakeholders see only the audio pipeline; their
+  votes are the source of truth for the pipeline score.
+- **Full view** (every model side by side plus the Benchmark): the group owner and people marked Tech on the Team page,
+  from any launcher, and every cost-group member ("Gemini Cost for Audio Pipeline") from its pinned card. The Team
+  page is the owner's only.
 
 ## Layout
 ```
 web/       static Mini App served by GitHub Pages (ES modules, no build step, no dependencies)
   index.html, css/style.css, js/*.js     entry: js/main.js
 server/    review API + Telegram poster (Python 3.10+, stdlib only)
-  review_app/   config, telegram (auth, modes), store (SQLite), results, views, roles, reports,
-                launcher, workers, scheduler, http, poster, __main__
+  review_app/   viewer (who sees what), conversations (scan, shaping, votes, recordings), telegram (one client,
+                launch links, pinned messages), store (SQLite), roles, reports, launcher, workers, scheduler,
+                http, poster, config, __main__
   tests/        pytest
 deploy/    systemd user units, env example, install script for thor02
 .github/workflows/pages.yml   publishes web/ only, stamps the commit into ?v= for cache busting
@@ -37,8 +40,9 @@ cd server
 python3 -m pytest -q
 ruff check . && ruff format --check .
 ```
-Frontend: `node --input-type=module --check < web/js/<file>.js`; for a browser check, serve a copy of `web/`
-with `__V__` replaced and stub `window.Telegram.WebApp` and `fetch`.
+Frontend: `node --test web/tests/*.test.js` (session, router, import graph) and
+`node --input-type=module --check < web/js/<file>.js`; for a browser check, serve a copy of `web/` with `__V__`
+replaced and stub `window.Telegram.WebApp` and `fetch`.
 
 ## Deploy
 - **Frontend:** push to `main`; the Pages workflow publishes `web/` (Settings → Pages → Source: GitHub Actions).

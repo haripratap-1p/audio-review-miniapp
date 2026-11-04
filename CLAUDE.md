@@ -11,6 +11,8 @@ Review Mini App: `web/` (GitHub Pages), `server/` (thor02 API + poster), `deploy
 - Web: ES modules, no build step or dependencies; every relative import ends in `?v=__V__`; keep the CSP.
 - Never commit secrets, `*.env`, `*.db`, logs or `live_results/`. Tokens live only in thor02
   `~/.config/review-app/review.env` (chmod 600) and are never printed.
-- Access rules: client view = pipeline only for everyone; full view only via the cost launcher **and** cost-group
-  membership. Don't loosen `mode()`, `view()` or `is_member()` without asking.
+- Access rules (`review_app/viewer.py`): membership of the launching group is always required; full view = cost
+  launcher, or owner, or Tech; everyone else sees the pipeline only. Team page = owner only. Don't loosen this
+  without asking.
+- Web: run `node --test web/tests/*.test.js` before committing web changes.
 - Deploying to thor02 restarts user services there; don't touch other services, tunnels or `~/SanjAI` files.
