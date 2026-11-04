@@ -1,4 +1,3 @@
-import hashlib
 import html
 import json
 import re
@@ -8,12 +7,11 @@ import time
 from pathlib import Path
 from typing import Any
 
-from .config import get_settings
+from .config import STEM, get_settings
+from .conversations import audio_for, conv_id
 from .launcher import tunnel_sub
 
 EMOJI = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
-# call: <number or contact name>_<YYYYMMDD-HHMMSS>; in-store clip: <YYYYMMDD_HHMMSS>
-STEM = re.compile(r"(?:(.+?)_+)?(\d{4})(\d\d)(\d\d)[-_](\d\d)(\d\d)\d\d$")
 
 
 def state_file() -> Path:
@@ -80,13 +78,7 @@ def post(key: str, js: Path, posted: set) -> None:
         return  # no speech in this clip, nothing to alert
     # "#card" recorded separately so a failed transcript never resends the audio
     if key + "#card" not in posted:
-        audio = next(js.parent.joinpath("audio").glob(js.stem + ".*"), None)
-        if audio and audio.suffix == ".mp4":
-            # in-store clips are CCTV video; post only the sound
-            m4a = js.with_suffix(".m4a")
-            cmd = ["ffmpeg", "-y", "-loglevel", "error", "-i", str(audio), "-vn", "-c:a", "copy", str(m4a)]
-            subprocess.run(cmd, check=True)
-            audio = m4a
+        audio = audio_for(js)
         text = card(store, js.stem, d)
         if audio:
             msg = tg("sendAudio", chat_id=chat, audio=audio, caption=text[:1024], parse_mode="HTML")
@@ -111,13 +103,13 @@ def review_button(key: str) -> dict:
     sub = tunnel_sub()
     if not sub:
         return {}
-    url = f"{get_settings().app_link}?startapp={sub}__{hashlib.sha1(key.encode()).hexdigest()[:10]}"
+    url = f"{get_settings().app_link}?startapp={sub}__{conv_id(key)}"
     return {"reply_markup": json.dumps({"inline_keyboard": [[{"text": "📝 Review", "url": url}]]})}
 
 
 def call_time(stem: str) -> str:
     m = STEM.match(stem)
-    return "".join(m.groups()[1:]) if m else ""
+    return "".join(m.groups()[1:6]) if m else ""  # to the minute, as posted so far
 
 
 def main() -> None:

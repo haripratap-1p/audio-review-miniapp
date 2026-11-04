@@ -12,10 +12,10 @@ from pathlib import Path
 
 import pytest
 
-from review_app import results, viewer, views
+from review_app import http, viewer
 from review_app.config import Settings, get_settings
+from review_app.conversations import conv_id
 from review_app.http import Handler
-from review_app.results import conv_id
 from review_app.store import db
 
 ENV_VARS = (
@@ -47,9 +47,8 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("REVIEW_HOME", str(tmp_path))
     get_settings.cache_clear()
-    results._cache.clear()
     monkeypatch.setattr(viewer, "membership", FakeMembership())
-    views._writes.clear()
+    http._writes.clear()
     yield get_settings()
     get_settings.cache_clear()
 

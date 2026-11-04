@@ -10,6 +10,7 @@ PIPELINE_MODEL = "whisper-large + pyannote + gemma3:4b"
 MAX_BODY = 32768  # a vote can carry a mark and note for every transcript line
 MAX_LINES = 300
 IST = ZoneInfo("Asia/Kolkata")
+# call: <number or contact name>_<YYYYMMDD-HHMMSS>; in-store clip: <YYYYMMDD_HHMMSS>
 STEM = re.compile(r"(?:(.+?)_+)?(\d{4})(\d\d)(\d\d)[-_](\d\d)(\d\d)(\d\d)$")
 SYSTEMS = ("pipeline", "gemma", "gemini", "lfm")
 LABELS = {"pipeline": "Audio pipeline", "gemma": "Gemma 4 12B", "gemini": "Gemini 3.6 Flash", "lfm": "LFM3-Omni 2B"}

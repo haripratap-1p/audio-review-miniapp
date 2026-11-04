@@ -3,7 +3,6 @@ import sqlite3
 from datetime import datetime
 
 from .config import IST, PIPELINE_MODEL, SYSTEMS, get_settings
-from .results import collect, load
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS conversations (
@@ -25,6 +24,12 @@ CREATE TABLE IF NOT EXISTS line_reviews (
 def db() -> sqlite3.Connection:
     c = sqlite3.connect(get_settings().db, timeout=10)
     c.executescript(SCHEMA)
+    if "source" not in {r[1] for r in c.execute("PRAGMA table_info(reviews)")}:
+        try:
+            c.execute("ALTER TABLE reviews ADD COLUMN source TEXT")  # "team" | "analysis"; NULL = before sources
+        except sqlite3.OperationalError as e:
+            if "duplicate column" not in str(e):  # another process added it first
+                raise
     return c
 
 
@@ -36,35 +41,36 @@ def all_rows() -> list:
 
 def sync_db() -> int:
     # temporary: mirror the result files into SQLite (files stay the source of truth for now)
+    from .conversations import scan  # conversations imports store
+
     now = datetime.now(IST).isoformat(timespec="seconds")
-    items = collect([])
+    convs = scan(rows=[])
     with db() as c:
-        for i in items:
-            js, s = i["_js"], i["sort"]
-            audio = next(js.parent.joinpath("audio").glob(js.stem + ".*"), None)
+        for i in convs:
+            s = i.sort
             c.execute(
                 "INSERT INTO conversations VALUES (?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET "
                 "duration=excluded.duration, audio_path=excluded.audio_path",
                 (
-                    i["id"],
-                    i["key"],
-                    i["store"],
-                    (load(js) or {}).get("adminId", ""),
-                    i["kind"],
-                    i["who"],
+                    i.id,
+                    i.key,
+                    i.store,
+                    i.admin_id,
+                    i.kind,
+                    i.who,
                     f"{s[:4]}-{s[4:6]}-{s[6:8]}T{s[8:10]}:{s[10:12]}:{s[12:14]}+05:30",
-                    i["duration"],
-                    str(audio or ""),
+                    i.duration,
+                    str(i.audio or ""),
                     now,
                 ),
             )
             for system in SYSTEMS:
-                r = i[system]
+                r = i.results[system]
                 if r:
                     c.execute(
                         "INSERT OR REPLACE INTO results VALUES (?,?,?,?,?,?,?,?,?)",
                         (
-                            i["id"],
+                            i.id,
                             system,
                             r.get("sentiment", ""),
                             r.get("summary", ""),
@@ -75,4 +81,4 @@ def sync_db() -> int:
                             now,
                         ),
                     )
-    return len(items)
+    return len(convs)

@@ -66,3 +66,16 @@ def test_team_access_labels_and_tech_toggle(api, galaxy: dict, settings: Setting
     assert code == 200 and {p["id"]: p["access"] for p in body["people"]}[4] == "tech"
     assert api("/api/conversations", 4)[1]["role"] == "tech" and api("/api/benchmark", 4)[0] == 200
     assert api("/api/team", 2, body={"id": 4, "tech": False})[0] == 403  # only the owner toggles
+
+
+def test_vote_routes(api, galaxy: dict, settings: Settings) -> None:
+    owner_is(settings, 1)
+    a = galaxy["a"]
+    assert api("/api/review", 20, COST, body={"id": a, "system": "gemini", "verdict": "ok"}) == (
+        409,
+        {"error": "This result isn't ready"},
+    )
+    assert api("/api/review", 5, body={"id": a, "system": "gemma", "verdict": "ok"})[0] == 403
+    assert api("/api/review", 5, body={"id": "nope", "system": "pipeline", "verdict": "ok"})[0] == 400
+    code, body = api("/api/review", 5, body={"id": a, "system": "pipeline", "verdict": "ok"})
+    assert code == 200 and body["votes"]["pipeline"]["mine"] == "ok" and set(body) == {"votes", "lines"}
