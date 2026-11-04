@@ -5,7 +5,7 @@ from .config import IST, LABELS, SYSTEMS, get_settings
 from .conversations import Conversation, scan
 from .launcher import tunnel_sub
 from .store import all_rows
-from .telegram import tg_api
+from .telegram import call, launch_url
 
 
 def eod_text(
@@ -80,9 +80,7 @@ def post_eod(dry: bool) -> None:
         print(text, bench, sep="\n\n")
         return
     if st.cost_chat:
-        tg_api("sendMessage", chat_id=st.cost_chat, text=bench, parse_mode="HTML")
+        call("sendMessage", chat_id=st.cost_chat, text=bench, parse_mode="HTML")
     sub = tunnel_sub()
-    markup = (
-        {"inline_keyboard": [[{"text": "📝 Open review", "url": f"{st.app_link}?startapp={sub}"}]]} if sub else None
-    )
-    tg_api("sendMessage", chat_id=st.chat, text=text, parse_mode="HTML", **({"reply_markup": markup} if markup else {}))
+    markup = {"inline_keyboard": [[{"text": "📝 Open review", "url": launch_url(sub)}]]} if sub else None
+    call("sendMessage", chat_id=st.chat, text=text, parse_mode="HTML", **({"reply_markup": markup} if markup else {}))

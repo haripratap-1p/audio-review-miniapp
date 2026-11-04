@@ -5,7 +5,7 @@ import time
 from pathlib import Path
 
 from .config import get_settings
-from .telegram import tg_api
+from .telegram import call
 
 WORKERS = (("Gemma", "gemma.pid", "gemma_guard.log"), ("Gemini", "gemini.pid", None), ("LFM3", "lfm.pid", None))
 
@@ -38,6 +38,6 @@ def check_workers() -> None:
             if gl and gl.exists() and time.time() - gl.stat().st_mtime < 900:
                 text += "\nReason: " + html.escape(gl.read_text().strip().splitlines()[-1][:200])
         if st.cost_chat:
-            tg_api("sendMessage", chat_id=st.cost_chat, text=text, parse_mode="HTML")
+            call("sendMessage", chat_id=st.cost_chat, text=text, parse_mode="HTML")
         print(f"worker {name} {'up' if up else 'down'}", flush=True)
     state_f.write_text(json.dumps(now_up))

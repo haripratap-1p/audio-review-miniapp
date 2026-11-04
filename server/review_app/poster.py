@@ -1,15 +1,14 @@
 import html
 import json
-import re
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any
 
 from .config import STEM, get_settings
 from .conversations import audio_for, conv_id
 from .launcher import tunnel_sub
+from .telegram import call, launch_url
 
 EMOJI = {"POSITIVE": "🟢", "NEGATIVE": "🔴", "NEUTRAL": "⚪"}
 
@@ -25,29 +24,6 @@ def msgids_file() -> Path:
 def call_date(stem: str) -> str:
     m = STEM.match(stem)
     return f"{m[2]}-{m[3]}-{m[4]}" if m else ""
-
-
-def form(k: str, v: Any) -> list:
-    # Path = file upload; text via --form-string so a leading "<" or "@" is sent literally
-    return ["-F", f"{k}=@{v}"] if isinstance(v, Path) else ["--form-string", f"{k}={v}"]
-
-
-def tg(method: str, **fields: Any) -> dict:
-    args = ["curl", "-sS", "--fail-with-body", "-m", "120", "-K", "-"]
-    for k, v in fields.items():
-        args += form(k, v)
-    api = f"https://api.telegram.org/bot{get_settings().token}"
-    for _ in range(5):
-        try:
-            # URL (with token) goes via stdin so it never shows in `ps`
-            r = subprocess.run(args, input=f'url = "{api}/{method}"', text=True, check=True, capture_output=True)
-            return json.loads(r.stdout).get("result") or {}
-        except subprocess.CalledProcessError as e:
-            m = re.search(r'"retry_after":(\d+)', e.stdout or "")
-            if not m:
-                raise
-            time.sleep(int(m[1]) + 1)
-    raise RuntimeError(f"{method}: still rate-limited")
 
 
 def card(store: str, stem: str, d: dict) -> str:
@@ -81,9 +57,9 @@ def post(key: str, js: Path, posted: set) -> None:
         audio = audio_for(js)
         text = card(store, js.stem, d)
         if audio:
-            msg = tg("sendAudio", chat_id=chat, audio=audio, caption=text[:1024], parse_mode="HTML")
+            msg = call("sendAudio", chat_id=chat, audio=audio, caption=text[:1024], parse_mode="HTML")
         else:
-            msg = tg("sendMessage", chat_id=chat, text=text, parse_mode="HTML")
+            msg = call("sendMessage", chat_id=chat, text=text, parse_mode="HTML")
         msgids = msgids_file()
         ids = json.loads(msgids.read_text()) if msgids.exists() else {}
         ids[key] = msg.get("message_id")
@@ -91,11 +67,11 @@ def post(key: str, js: Path, posted: set) -> None:
         mark(posted, key + "#card")
     btn = review_button(key)  # newest post at the bottom always carries the Review button
     if len(convo) < 3500:
-        tg("sendMessage", chat_id=chat, text=f"<b>Transcript</b>\n{html.escape(convo)}", parse_mode="HTML", **btn)
+        call("sendMessage", chat_id=chat, text=f"<b>Transcript</b>\n{html.escape(convo)}", parse_mode="HTML", **btn)
     else:
         txt = js.with_suffix(".txt")
         txt.write_text(convo, encoding="utf-8")
-        tg("sendDocument", chat_id=chat, document=txt, caption="Transcript", **btn)
+        call("sendDocument", chat_id=chat, document=txt, caption="Transcript", **btn)
 
 
 def review_button(key: str) -> dict:
@@ -103,8 +79,7 @@ def review_button(key: str) -> dict:
     sub = tunnel_sub()
     if not sub:
         return {}
-    url = f"{get_settings().app_link}?startapp={sub}__{conv_id(key)}"
-    return {"reply_markup": json.dumps({"inline_keyboard": [[{"text": "📝 Review", "url": url}]]})}
+    return {"reply_markup": {"inline_keyboard": [[{"text": "📝 Review", "url": launch_url(sub, conv_id(key))}]]}}
 
 
 def call_time(stem: str) -> str:
@@ -132,9 +107,8 @@ def main() -> None:
                     mark(posted, key)
                     print(f"posted {key}", flush=True)
                     time.sleep(3)  # stay under Telegram's ~20 msgs/min per group
-            except (subprocess.CalledProcessError, RuntimeError) as e:
-                err = getattr(e, "stdout", "") or getattr(e, "stderr", "") or str(e)
-                print(f"post failed {key}: {err[:300]}", flush=True)
+            except (subprocess.CalledProcessError, OSError, RuntimeError) as e:
+                print(f"post failed {key}: {str(e)[:300]}", flush=True)
         time.sleep(5)
 
 

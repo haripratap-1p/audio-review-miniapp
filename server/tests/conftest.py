@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from review_app import http, viewer
+from review_app import http, telegram, viewer
 from review_app.config import Settings, get_settings
 from review_app.conversations import conv_id
 from review_app.http import Handler
@@ -33,6 +33,25 @@ ENV_VARS = (
 TOKEN = "123:abc"
 
 
+class FakeTelegram:
+    def __init__(self) -> None:
+        self.calls: list = []  # (method, params)
+        self.fail: dict = {}  # method -> error description raised once
+        self.next_id = 100
+
+    def call(self, method: str, **params: object) -> object:
+        self.calls.append((method, params))
+        if method in self.fail:
+            raise telegram.TelegramError(f"{method}: {self.fail.pop(method)}")
+        if method.startswith("send"):
+            self.next_id += 1
+            return {"message_id": self.next_id}
+        return True
+
+    def methods(self) -> list:
+        return [m for m, _ in self.calls]
+
+
 class FakeMembership:
     def __init__(self) -> None:
         self.chats: dict = {}  # chat -> set of user ids
@@ -48,9 +67,15 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
     monkeypatch.setenv("REVIEW_HOME", str(tmp_path))
     get_settings.cache_clear()
     monkeypatch.setattr(viewer, "membership", FakeMembership())
+    monkeypatch.setattr(telegram, "client", FakeTelegram())
     http._writes.clear()
     yield get_settings()
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def tg() -> FakeTelegram:
+    return telegram.client
 
 
 @pytest.fixture

@@ -6,7 +6,7 @@ from typing import Protocol
 from .config import IST, MEMBER_OK, SYSTEMS, get_settings
 from .roles import roles, team_list
 from .store import db
-from .telegram import check_init_data, mode, tg_api
+from .telegram import call, check_init_data, mode
 
 
 class Membership(Protocol):
@@ -21,7 +21,7 @@ class TelegramMembership:
         ok, at = self._seen.get((chat, uid), (False, 0))
         if time.time() - at > 3600:
             try:
-                ok = tg_api("getChatMember", chat_id=chat, user_id=uid)["result"]["status"] in MEMBER_OK
+                ok = call("getChatMember", chat_id=chat, user_id=uid)["status"] in MEMBER_OK
             except Exception:
                 ok = False
             self._seen[(chat, uid)] = (ok, time.time())

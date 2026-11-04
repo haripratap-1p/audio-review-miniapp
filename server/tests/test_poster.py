@@ -1,7 +1,12 @@
+import json
 from pathlib import Path
 
+import pytest
+from conftest import FakeTelegram
+
 from review_app.config import Settings
-from review_app.poster import call_date, call_time, card, form, review_button
+from review_app.conversations import conv_id
+from review_app.poster import call_date, call_time, card, post, review_button
 
 
 def test_call_date() -> None:
@@ -20,16 +25,49 @@ def test_card() -> None:
     assert card("Galaxy", "Piyush_Kumar__20260622-095559", {}).startswith("📞")
 
 
-def test_form() -> None:
-    assert form("text", "<b>Transcript</b>") == ["--form-string", "text=<b>Transcript</b>"]
-    assert form("audio", Path("/a/b.m4a")) == ["-F", "audio=@/a/b.m4a"]
-
-
 def test_call_time() -> None:
     assert call_time("20261102_154507") > call_time("919620356029_20261028-104047")
+    assert call_time("20261102_154507") == "202611021545"  # to the minute: post order unchanged
 
 
 def test_review_button(settings: Settings) -> None:
     assert review_button("Galaxy/x") == {}
     settings.tunnel_log.write_text("https://abc-def.trycloudflare.com\n")
-    assert "startapp=abc-def__" in review_button("Galaxy/x")["reply_markup"]
+    url = review_button("Galaxy/x")["reply_markup"]["inline_keyboard"][0][0]["url"]
+    assert url.endswith(f"?startapp=abc-def__{conv_id('Galaxy/x')}")
+
+
+def test_post_end_to_end(settings: Settings, set_env, tg: FakeTelegram) -> None:
+    set_env(TG_CHAT="-1")
+    settings.tunnel_log.write_text("https://abc-def.trycloudflare.com\n")
+    day = settings.results / "Galaxy" / "2026-11-02"
+    (day / "audio").mkdir(parents=True)
+    js = day / "919800000001_20261102-101500.json"
+    js.write_text(json.dumps({"conversation": "[Speaker_01]: hi <there>", "summary": "greeting"}))
+    (day / "audio" / f"{js.stem}.mp3").write_bytes(b"mp3")
+    key, posted = f"Galaxy/{js.stem}", set()
+    post(key, js, posted)
+    (m1, audio), (m2, msg) = tg.calls
+    assert m1 == "sendAudio" and audio["audio"] == day / "audio" / f"{js.stem}.mp3" and audio["chat_id"] == "-1"
+    assert "<b>Galaxy</b> · 919800000001" in audio["caption"] and "greeting" in audio["caption"]
+    assert m2 == "sendMessage" and msg["text"] == "<b>Transcript</b>\n[Speaker_01]: hi &lt;there&gt;"
+    assert msg["reply_markup"]["inline_keyboard"][0][0]["text"] == "📝 Review"
+    assert json.loads((settings.results.parent / "telegram_msgids.json").read_text()) == {key: 101}
+    assert key + "#card" in posted
+    tg.fail["sendMessage"] = "Too Many Requests"
+    tg.calls.clear()
+    with pytest.raises(RuntimeError):
+        post(key, js, posted)  # transcript failed: a retry never resends the audio
+    post(key, js, posted)
+    assert tg.methods() == ["sendMessage", "sendMessage"]
+
+
+def test_post_long_transcript_as_document(settings: Settings, set_env, tg: FakeTelegram) -> None:
+    set_env(TG_CHAT="-1")
+    day = settings.results / "Galaxy" / "2026-11-02"
+    day.mkdir(parents=True)
+    js = day / "20261102_154507.json"
+    js.write_text(json.dumps({"conversation": "[Speaker_01]: " + "x" * 4000}))
+    post("Galaxy/20261102_154507", js, set())
+    assert tg.methods() == ["sendMessage", "sendDocument"]  # no audio: card as text
+    assert tg.calls[1][1]["document"] == Path(js.with_suffix(".txt")) and "reply_markup" not in tg.calls[1][1]
