@@ -225,3 +225,18 @@ main.page { max-width: 1100px; }
 .ai-partly { color: var(--c2); background: var(--accent-tint); }
 .ai-wrong { color: var(--bad); background: var(--bad-tint); }
 .col.ref { border-style: dashed; }
+
+/* date filter: chip under the Calls / In-store tabs, calendar sheet */
+.date-row { gap: var(--s3); margin-top: var(--s2); }
+.date-chip[aria-pressed="true"] { background: var(--accent-tint); border-color: var(--accent); color: var(--accent); }
+.cal-head h2 { margin: 0; font-size: 17px; }
+.cal-nav { width: 44px; height: 44px; border-radius: 8px; border: 1px solid var(--rule); background: var(--sheet); font-size: 22px; }
+.cal-nav:disabled { opacity: 0.35; }
+.cal { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: var(--s3); }
+.cal-wd { text-align: center; font-size: 12px; color: var(--quiet); padding-bottom: 2px; }
+.cal-day { min-height: 44px; border-radius: 8px; border: 1px solid transparent; background: none; color: var(--quiet); opacity: 0.45;
+  display: grid; place-items: center; align-content: center; font-variant-numeric: tabular-nums; }
+.cal-day.has { opacity: 1; color: var(--ink); font-weight: 600; background: var(--accent-tint); border-color: var(--accent); }
+.cal-day.has small { font-size: 10px; font-weight: 500; color: var(--quiet); line-height: 1; }
+.cal-day[aria-pressed="true"] { background: var(--accent); color: var(--on-solid); }
+.cal-day[aria-pressed="true"] small { color: var(--on-solid); }

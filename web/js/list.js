@@ -1,12 +1,13 @@
 // all conversations grouped by arrival day (phone page and PC sidebar), the top bar and the Calls / In-store tabs
-import { state, SYSTEMS, SHORT, has, isDone, notUsed, queue } from "./state.js?v=__V__";
+import { state, SYSTEMS, SHORT, has, inDay, inView, isDone, notUsed, queue } from "./state.js?v=__V__";
 import { $app, h, badge } from "./dom.js?v=__V__";
-import { arrDay, dayLabel, listWhen, verdictText } from "./format.js?v=__V__";
+import { arrDay, dayLabel, fmtDate, listWhen, verdictText } from "./format.js?v=__V__";
+import { calendarSheet } from "./calendar.js?v=__V__";
 import { themeButton } from "./theme.js?v=__V__";
 import { go } from "./router.js?v=__V__";
 
 export function topbar(active) {
-  const mine = state.items.filter((i) => i.kind === state.kind);
+  const mine = state.items.filter(inView);
   const waiting = mine.filter((i) => SYSTEMS.some((s) => !has(i, s) && !notUsed(i, s))).length;
   const stat = (n, label) => h("span", {}, h("b", {}, n), ` ${label}`);
   const tab = (key, text, screen) => h("button", { class: "seg-btn", "aria-pressed": String(active === key), onclick: () => go(screen) }, text);
@@ -24,18 +25,33 @@ export function topbar(active) {
 }
 
 function kindTabs(active) {
-  const openOf = (k) => state.items.filter((i) => i.kind === k && !isDone(i)).length;
+  const openOf = (k) => state.items.filter((i) => i.kind === k && inDay(i) && !isDone(i)).length;
+  const repaint = () => go(active === "all" ? "list" : "next");
   const kindTab = (k, text) => h("button", {
     class: "kind-tab", role: "tab", "aria-selected": String(state.kind === k),
-    onclick: () => { state.kind = k; go(active === "all" ? "list" : "next"); },
+    onclick: () => { state.kind = k; repaint(); },
   }, text, h("span", { class: "count" }, openOf(k)));
-  return h("div", { class: "kind-tabs", role: "tablist", "aria-label": "Recording type" }, kindTab("call", "Calls"), kindTab("in-store", "In-store"));
+  return [h("div", { class: "kind-tabs", role: "tablist", "aria-label": "Recording type" }, kindTab("call", "Calls"), kindTab("in-store", "In-store")),
+    dateChip(repaint)];
 }
+
+// recordings per arrival day for the current tab; the calendar highlights only these days
+function dayCounts() {
+  const counts = new Map();
+  for (const i of state.items) if (i.kind === state.kind) counts.set(arrDay(i), (counts.get(arrDay(i)) || 0) + 1);
+  return counts;
+}
+
+const setDay = (repaint) => (d) => { state.day = d; repaint(); };
+const dateChip = (repaint) => h("div", { class: "row date-row" },
+  h("button", { class: "chip date-chip", "aria-haspopup": "dialog", "aria-pressed": String(!!state.day),
+    onclick: () => calendarSheet(dayCounts(), state.day, setDay(repaint)) }, `📅 ${state.day ? fmtDate(state.day) : "All dates"} ▾`),
+  state.day ? h("button", { class: "link", onclick: () => setDay(repaint)(null) }, "Show all dates") : null);
 
 const FILTERS = [["all", "All"], ["todo", "To review"]];
 
 function byDay() {
-  const keep = (i) => i.kind === state.kind && (state.filter === "all" || !isDone(i));
+  const keep = (i) => inView(i) && (state.filter === "all" || !isDone(i));
   const days = new Map();
   for (const i of state.items.filter(keep)) days.set(arrDay(i), [...(days.get(arrDay(i)) || []), i]);
   return days;

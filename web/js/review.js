@@ -1,7 +1,7 @@
 // review screens: phone queue one result at a time, PC desk with results side by side
-import { state, SYSTEMS, LABEL, has, isDone, nextOpen, notUsed, missingText, queue } from "./state.js?v=__V__";
+import { state, SYSTEMS, LABEL, has, inView, isDone, nextOpen, notUsed, missingText, queue } from "./state.js?v=__V__";
 import { $app, h, icon, badge, haptic, toast, skeleton, showError, confirmSheet, reasonSheet } from "./dom.js?v=__V__";
-import { verdictText, whenText } from "./format.js?v=__V__";
+import { fmtDate, verdictText, whenText } from "./format.js?v=__V__";
 import { getDetail, prefetch, session } from "./api.js?v=__V__";
 import { player } from "./player.js?v=__V__";
 import { topbar, sidebarList } from "./list.js?v=__V__";
@@ -164,6 +164,7 @@ export async function renderReview(id) {
 export function renderDone() {
   $app.replaceChildren(topbar("queue"), h("section", { class: "message" },
     h("h1", {}, "You're up to date"),
+    state.day ? h("p", {}, `Nothing left to review on ${fmtDate(state.day)}.`) : null,
     h("p", {}, state.myToday ? `You've checked ${state.myToday} conversation${state.myToday === 1 ? "" : "s"} today.` : "Nothing is waiting for you right now."),
     h("p", { class: "note" }, "New conversations appear here as they're processed."),
     h("button", { class: "btn primary", onclick: () => go("refresh") }, "Refresh"),
@@ -172,7 +173,7 @@ export function renderDone() {
 
 // PC / laptop: list on the left, both results side by side
 export async function renderDesk(id) {
-  const row = state.items.find((i) => i.id === id) || queue()[0] || state.items.find((i) => i.kind === state.kind);
+  const row = state.items.find((i) => i.id === id) || queue()[0] || state.items.find(inView);
   if (row) state.kind = row.kind;
   state.current = row?.id;
   const main = h("div", { class: "desk-main" });

@@ -1,4 +1,6 @@
 // shared app state, the systems this user may see, and queue rules
+import { arrDay } from "./format.js?v=__V__";
+
 export const tg = window.Telegram && window.Telegram.WebApp;
 
 // which systems and names this user may see come from the server (role-based)
@@ -12,7 +14,7 @@ export const SHORT = { pipeline: "Pipeline", gemma: "Gemma", gemini: "Gemini", l
 export const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing parts", "Other"];
 
 export const state = {
-  items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all", kind: "call",
+  items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all", kind: "call", day: null,
   skipped: [], details: new Map(), audio: new Map(),
 };
 
@@ -24,7 +26,10 @@ export const missingText = (i, s) => (notUsed(i, s) ? `${LABEL[s]} is not used f
 export const has = (i, s) => (i.avail ? i.avail[s] : s === "pipeline" || (s === "gemma" && i.ready));
 export const isDone = (i) => SYSTEMS.every((s) => !has(i, s) || i.mine[s]);
 export const nextOpen = (i, after) => SYSTEMS.find((s) => s !== after && has(i, s) && !i.mine[s]);
+// the picked arrival day (null = all dates) and the Calls / In-store tab
+export const inDay = (i) => !state.day || arrDay(i) === state.day;
+export const inView = (i) => i.kind === state.kind && inDay(i);
 export function queue() {
-  const open = state.items.filter((i) => i.kind === state.kind && !isDone(i));
+  const open = state.items.filter((i) => inView(i) && !isDone(i));
   return [...open.filter((i) => !state.skipped.includes(i.id)), ...open.filter((i) => state.skipped.includes(i.id))];
 }
