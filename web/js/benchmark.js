@@ -1,4 +1,4 @@
-// Tech team benchmark: % correct per system, calls vs in-store, daily trend, reviewers
+// Tech team benchmark: % correct per system, people vs AI judge, calls vs in-store, daily trend, reviewers
 import { $app, h, skeleton, showError } from "./dom.js?v=__V__";
 import { fmtDate } from "./format.js?v=__V__";
 import { api } from "./api.js?v=__V__";
@@ -65,8 +65,18 @@ export async function renderBenchmark() {
     h("p", { class: "big" }, pctText(b.systems[s].all)),
     h("p", { class: "note" }, `correct, ${b.systems[s].all.checked} checked of ${b.systems[s].all.available}`));
   const cell = (sc) => h("td", {}, pctText(sc), h("span", { class: "note" }, ` (${sc.checked})`));
+  // people's and the AI judge's numbers stay in separate columns, never blended
+  const aiCell = (x, n) => h("td", {}, pctText(x), h("span", { class: "note" }, ` (${x ? x[n] : 0})`));
+  const agree = b.agreement || {}, ref = b.reference;
   $app.replaceChildren(topbar("benchmark"),
     h("div", { class: "scores" }, sys.map(card)),
+    h("section", { class: "panel-block" }, h("h2", {}, "People and AI judge"),
+      h("table", { class: "grid-table" },
+        h("thead", {}, h("tr", {}, h("th", {}, "System"), h("th", {}, "Checked by people"), h("th", {}, "AI-judged"), h("th", {}, "AI agrees with people"))),
+        h("tbody", {}, sys.map((s) => h("tr", {}, h("th", {}, b.labels[s]),
+          cell(b.systems[s].all), aiCell(b.systems[s].ai, "judged"), aiCell(agree[s], "pairs"))))),
+      h("p", { class: "note" }, `AI judge agrees with people on ${pctText(agree.all)} of ${agree.all ? agree.all.pairs : 0} results people checked (AI score 80% or more counts as correct).`),
+      ref ? h("p", { class: "note" }, `${ref.label} is the reference the AI judge compares against; it is not scored.${ref.models.length ? ` Model: ${ref.models.join(", ")}.` : ""}`) : null),
     h("section", { class: "panel-block" }, h("h2", {}, "Calls and in-store"),
       h("table", { class: "grid-table" },
         h("thead", {}, h("tr", {}, h("th", {}, "System"), h("th", {}, "All"), h("th", {}, "Calls"), h("th", {}, "In-store"))),

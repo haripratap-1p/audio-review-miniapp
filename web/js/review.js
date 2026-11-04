@@ -7,7 +7,7 @@ import { player } from "./player.js?v=__V__";
 import { topbar, sidebarList } from "./list.js?v=__V__";
 import { go } from "./router.js?v=__V__";
 
-// lines: { marks: {idx: {verdict, note}}, team: {idx: {ok, bad}}, edit: bool, onMark(idx, verdict|null, note) }
+// lines: { marks: {idx: {verdict, note}}, team: {idx: {ok, bad}}, ai: {idx: meaning}, edit: bool, onMark(idx, verdict|null, note) }
 function transcript(result, pending, lines) {
   if (!result) return h("p", { class: "note" }, pending);
   if (result.error) return h("p", { class: "warn" }, "This result failed: " + result.error);
@@ -16,7 +16,8 @@ function transcript(result, pending, lines) {
     if (!lines) return null;
     const m = lines.marks[k], t = lines.team && lines.team[k];
     const team = t ? h("span", { class: "note" }, `Team ✓${t.ok} ✗${t.bad}`) : null;
-    if (!lines.edit) return h("div", { class: "lmarks" }, m ? badge(m.verdict, m.verdict === "ok" ? "Line correct" : "Line wrong") : null, team);
+    const a = lines.ai && lines.ai[k], ai = a ? h("span", { class: `ai ai-${a}`, title: "AI judge against the reference" }, `AI: ${a}`) : null;
+    if (!lines.edit) return h("div", { class: "lmarks" }, m ? badge(m.verdict, m.verdict === "ok" ? "Line correct" : "Line wrong") : null, team, ai);
     const pick = (v) => () => {
       if (m && m.verdict === v) return lines.onMark(k, null, "");
       if (v === "ok") return lines.onMark(k, "ok", "");
@@ -24,7 +25,7 @@ function transcript(result, pending, lines) {
     };
     return h("div", { class: "lmarks" },
       h("button", { class: "lm ok", "aria-pressed": String(m?.verdict === "ok"), "aria-label": `Line ${Number(k) + 1} is correct`, onclick: pick("ok") }, icon("check")),
-      h("button", { class: "lm bad", "aria-pressed": String(m?.verdict === "bad"), "aria-label": `Line ${Number(k) + 1} is wrong`, onclick: pick("bad") }, icon("cross")), team);
+      h("button", { class: "lm bad", "aria-pressed": String(m?.verdict === "bad"), "aria-label": `Line ${Number(k) + 1} is wrong`, onclick: pick("bad") }, icon("cross")), team, ai);
   };
   return h("div", {},
     h("p", { class: "summary" }, h("span", { class: "mood" }, result.sentiment || "No mood"), result.summary ? ` ${result.summary}` : ""),
@@ -41,7 +42,7 @@ function transcript(result, pending, lines) {
 // one system's review: transcript with line marks, then Correct/Wrong behind a confirm, or my saved review with Undo
 function reviewArea(row, d, sys, after) {
   const result = d[sys], saved = row.mine[sys], n = (result?.turns || []).length;
-  const info = session.lines(row.id, sys, d);
+  const info = session.lines(row.id, sys, d), ai = d.judge?.[sys]?.lines;
   if (!has(row, sys)) return { ask: "Nothing to check yet", body: transcript(null, missingText(row, sys)), actions: null };
   if (saved) {
     const undo = () => confirmSheet("Undo your review?",
@@ -54,7 +55,7 @@ function reviewArea(row, d, sys, after) {
       });
     return {
       ask: `You reviewed ${LABEL[sys]}`,
-      body: transcript(result, "", { marks: info.mine, team: info.team, edit: false }),
+      body: transcript(result, "", { marks: info.mine, team: info.team, ai, edit: false }),
       actions: h("div", { class: "row saved" }, badge(saved, `You said ${verdictText(saved)}`), h("button", { class: "btn quiet", onclick: undo }, "Undo my review")),
     };
   }
@@ -65,7 +66,7 @@ function reviewArea(row, d, sys, after) {
     counter.textContent = vals.length ? `${vals.length} of ${n} lines marked: ${ok} correct, ${vals.length - ok} wrong. Saved only when you submit.`
       : "Optional: mark each line ✓ or ✗, then choose Correct or Wrong for the whole result.";
     body.replaceChildren(transcript(result, "", {
-      marks: draft, edit: true,
+      marks: draft, ai, edit: true,
       onMark: (k, v, note) => { session.mark(row.id, sys, k, v, note); paintBody(); },
     }));
   };
@@ -94,6 +95,11 @@ function reviewArea(row, d, sys, after) {
   };
 }
 
+// full view only: the Gemini reference, read-only and never voted on
+const REF = "reference";
+const refArea = (ref) => ({ ask: `${ref.label}: not scored${ref.model ? ` (${ref.model})` : ""}`, body: transcript(ref, ""), actions: null });
+const refHead = (ref) => h("div", { class: "col-head" }, h("h2", {}, ref.label), ref.model ? h("p", { class: "note" }, ref.model) : null);
+
 // client view only: one line on how to review
 const hint = () => (state.role === "general" ? h("p", { class: "note hint" }, "Listen, mark any wrong lines, then press Correct or Wrong.") : null);
 
@@ -119,15 +125,16 @@ export async function renderReview(id) {
   const done = [];
 
   const paint = () => {
-    const notReady = !has(row, cur);
+    const notReady = cur !== REF && !has(row, cur);
     tabs.replaceChildren(...SYSTEMS.map((s) => h("button", {
       class: "tab", role: "tab", "aria-selected": String(s === cur), onclick: () => { cur = s; paint(); },
-    }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)));
-    const ra = reviewArea(row, d, cur, (v) => (v === "undo" ? paint() : vote()));
+    }, LABEL[s], row.mine[s] ? badge(row.mine[s], verdictText(row.mine[s])) : null)),
+    ...(d.reference ? [h("button", { class: "tab ref", role: "tab", "aria-selected": String(cur === REF), onclick: () => { cur = REF; paint(); } }, d.reference.label)] : []));
+    const ra = cur === REF ? refArea(d.reference) : reviewArea(row, d, cur, (v) => (v === "undo" ? paint() : vote()));
     panel.replaceChildren(notReady ? transcript(null, notUsed(row, cur) ? missingText(row, cur) : `${missingText(row, cur)} It will come back to your queue when it is.`) : ra.body);
     verdict.replaceChildren(
       h("div", { class: "row between" }, h("p", { class: "ask" }, ra.ask), h("button", { class: "link", onclick: skip }, "Skip")),
-      ra.actions);
+      ...(ra.actions ? [ra.actions] : []));
     window.scrollTo({ top: 0, behavior: "instant" });
   };
 
@@ -191,7 +198,8 @@ export async function renderDesk(id) {
       ra.actions ? h("div", { class: "col-verdict" }, ra.actions) : null);
   };
   const cols = h("div", { class: "cols" });
-  const paint = () => cols.replaceChildren(...SYSTEMS.map(column));
+  const refCol = d.reference ? h("section", { class: "col ref" }, refHead(d.reference), h("div", { class: "col-body" }, refArea(d.reference).body)) : null;
+  const paint = () => cols.replaceChildren(...SYSTEMS.map(column), ...(refCol ? [refCol] : []));
   const vote = (sys) => {
     done.push(sys);
     if (!isDone(row)) return paint();
