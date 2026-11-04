@@ -38,12 +38,12 @@ def test_phone_alerts_at_5_30_60_90_then_quiet(settings: Settings, set_env, tg: 
     run(range(0, 121))
     sent = texts(tg)
     assert len(sent) == 4 and all(p["chat_id"] == "-1" and p["parse_mode"] == "HTML" for m, p in tg.calls)
-    assert [s.split("(down ")[1].split(")")[0] for s in sent] == ["5 min", "30 min", "1 h", "1 h 30 min"]
-    assert sent[0].startswith("📵 Galaxy store phone is offline") and "@Nikhil_mirajkar" in sent[0]
-    assert "Type <b>sshd</b>" in sent[0] and "Please reply here when done" in sent[0]
-    assert sent[3].endswith("This is the last reminder; we will post here when it is back online.")
+    assert [s.split("offline (")[1].split(")")[0] for s in sent] == ["5 min", "30 min", "1 h", "1 h 30 min"]
+    assert sent[0].startswith("📵 <b>Galaxy store phone is offline (5 min)</b>\n\n@Nikhil_mirajkar @Royjpr please")
+    assert "3. Open Termux, type sshd and press Enter." in sent[0] and sent[0].endswith("Reply here when done.")
+    assert sent[3].endswith("Last reminder. We will post here when it is back.")
     run([125], up=True)
-    back = "✅ Galaxy store phone is back online — call recordings are reaching us again (was down 2 h 5 min)."
+    back = "✅ Galaxy store phone is back online (was down 2 h 5 min)."
     assert texts(tg)[-1] == back
     assert json.loads((settings.home / "devices_state.json").read_text()) == {"phone": {}}
 
@@ -56,7 +56,7 @@ def test_short_blip_and_restart_keep_quiet(settings: Settings, set_env, tg: Fake
     run([10, 14])  # down again from minute 10; state is on disk, so a restart picks up where it was
     assert texts(tg) == []
     run([15])
-    assert "(down 5 min)" in texts(tg)[0]
+    assert "offline (5 min)" in texts(tg)[0]
 
 
 def test_switched_off_types_are_not_checked(settings: Settings, set_env, tg: FakeTelegram) -> None:
@@ -67,7 +67,9 @@ def test_switched_off_types_are_not_checked(settings: Settings, set_env, tg: Fak
     set_env(INSTORE="true")
     run([0, 5])
     msg = texts(tg)[0]
-    assert msg.startswith("Galaxy in-store Jetson is offline") and "1️⃣" not in msg and "@Nikhil_mirajkar" in msg
+    head, ask = msg.split("\n\n")
+    assert head == "<b>Galaxy in-store Jetson is offline (5 min)</b>"
+    assert ask == "@Nikhil_mirajkar @Royjpr please help bring it back online."
     assert [d.key for d in DEVICES] == ["phone", "jetson"]
 
 
@@ -79,3 +81,9 @@ def test_reachable() -> None:
     assert reachable(f"127.0.0.1:{port}")
     srv.close()
     assert not reachable(f"127.0.0.1:{port}", timeout=1) and not reachable("bad")
+
+
+def test_alerts_go_to_alert_chat_when_set(settings: Settings, set_env, tg: FakeTelegram) -> None:
+    set_env(TG_CHAT="-1", ALERT_CHAT="-4650652548", INSTORE="false")
+    run([0, 5])
+    assert [p["chat_id"] for m, p in tg.calls] == ["-4650652548"]

@@ -10,13 +10,12 @@ from .telegram import call
 
 ALERT_AT = (5, 30, 60, 90)  # minutes offline when an alert goes out; quiet after the last until back online
 PHONE_STEPS = (
-    "1️⃣ Check the phone is switched on, plugged into the charger, and connected to Wi-Fi or mobile data.\n"
-    "2️⃣ Open the <b>Tailscale</b> app. It should say <b>Connected</b>. If it does not, tap the switch to connect.\n"
-    "3️⃣ Open the <b>Termux</b> app (black screen). Type <b>sshd</b> and press <b>Enter</b>. "
-    "Nothing appears on screen; that is normal.\n"
-    "4️⃣ Open the <b>Termux:Boot</b> app once. It opens and closes by itself; that is normal."
+    "1. Keep the phone on, charging and connected to the internet.\n"
+    "2. Open Tailscale and check it says Connected.\n"
+    "3. Open Termux, type sshd and press Enter.\n"
+    "4. Open Termux:Boot once."
 )
-LAST = "This is the last reminder; we will post here when it is back online."
+LAST = "Last reminder. We will post here when it is back."
 
 
 @dataclass(frozen=True)
@@ -24,7 +23,8 @@ class Device:
     key: str
     kind: str  # checked only while this type (CALLS / INSTORE) is on
     addr: str  # Settings field holding host:port
-    down: str  # first line; {d} = time offline, {tag} = who is tagged
+    down: str  # header; {d} = time offline
+    ask: str  # {tag} = who is tagged
     up: str
     steps: str = ""
     reply: str = ""
@@ -35,19 +35,19 @@ DEVICES = (
         "phone",
         "call",
         "phone_addr",
-        "📵 Galaxy store phone is offline — call recordings are not reaching us (down {d}). "
-        "{tag} please coordinate with the store staff:",
-        "✅ Galaxy store phone is back online — call recordings are reaching us again (was down {d}).",
+        "📵 <b>Galaxy store phone is offline ({d})</b>",
+        "{tag} please ask the store staff to:",
+        "✅ Galaxy store phone is back online (was down {d}).",
         PHONE_STEPS,
-        "Please reply here when done. We will confirm here once the phone is back online.",
+        "Reply here when done.",
     ),
     Device(
         "jetson",
         "in-store",
         "jetson_addr",
-        "Galaxy in-store Jetson is offline — in-store conversations are not reaching us (down {d}). "
-        "{tag} please coordinate to bring it back online.",
-        "✅ Galaxy in-store Jetson is back online — in-store conversations are reaching us again (was down {d}).",
+        "<b>Galaxy in-store Jetson is offline ({d})</b>",
+        "{tag} please help bring it back online.",
+        "✅ Galaxy in-store Jetson is back online (was down {d}).",
     ),
 )
 
@@ -82,11 +82,10 @@ def step(prev: dict, up: bool, now: float) -> tuple[dict, str | None, float]:
 def message(d: Device, event: str, mins: float, tag: str) -> str:
     if event == "up":
         return d.up.format(d=span(mins))
-    text = d.down.format(d=span(mins), tag=html.escape(tag))
-    if d.steps:
-        text += "\n" + d.steps
+    ask = d.ask.format(tag=html.escape(tag))
+    body = f"{ask}\n{d.steps}" if d.steps else ask
     end = LAST if event == "last" else d.reply
-    return text + ("\n\n" + end if end else "")
+    return "\n\n".join(p for p in (d.down.format(d=span(mins)), body, end) if p)
 
 
 def check_devices(now: float | None = None, probe: Callable[[str], bool] = reachable) -> None:
@@ -99,7 +98,8 @@ def check_devices(now: float | None = None, probe: Callable[[str], bool] = reach
             state.pop(d.key, None)
             continue
         state[d.key], event, mins = step(state.get(d.key, {}), probe(getattr(st, d.addr)), now)
-        if event and st.chat:
-            call("sendMessage", chat_id=st.chat, text=message(d, event, mins, st.alert_tag), parse_mode="HTML")
+        chat = st.alert_chat or st.chat
+        if event and chat:
+            call("sendMessage", chat_id=chat, text=message(d, event, mins, st.alert_tag), parse_mode="HTML")
             print(f"device {d.key} {event} ({span(mins)})", flush=True)
     state_f.write_text(json.dumps(state))

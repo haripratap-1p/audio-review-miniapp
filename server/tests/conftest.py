@@ -39,6 +39,7 @@ ENV_VARS = (
     "PHONE_ADDR",
     "JETSON_ADDR",
     "ALERT_TAG",
+    "ALERT_CHAT",
 )
 TOKEN = "123:abc"
 

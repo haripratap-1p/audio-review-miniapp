@@ -41,7 +41,8 @@ class Settings:
     instore_on: bool  # INSTORE=false: the same for in-store clips
     phone_addr: str  # store phone (Termux sshd) host:port, checked while calls are on
     jetson_addr: str  # in-store Jetson host:port, checked while in-store is on
-    alert_tag: str  # who the device-offline alerts tag in the client group
+    alert_tag: str  # who the device-offline alerts tag, space separated
+    alert_chat: str  # where device-offline alerts go; empty = the client group
 
     @property
     def tunnel_log(self) -> Path:
@@ -83,7 +84,8 @@ class Settings:
             instore_on=_on(env.get("INSTORE", "true")),
             phone_addr=env.get("PHONE_ADDR", "100.64.0.166:8022"),
             jetson_addr=env.get("JETSON_ADDR", "100.64.0.82:22"),
-            alert_tag=env.get("ALERT_TAG", "@Nikhil_mirajkar"),
+            alert_tag=env.get("ALERT_TAG", "@Nikhil_mirajkar @Royjpr"),
+            alert_chat=env.get("ALERT_CHAT", ""),
         )
 
 
