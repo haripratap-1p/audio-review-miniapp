@@ -19,8 +19,8 @@ OTHER = Viewer(99, "Ravi", "Ravi", full=True, owner=False)
 def test_listing_rows_per_viewer(galaxy: dict) -> None:
     out = listing(ASHA, today="2026-11-02")
     c, b, a = out["items"]  # newest call time first
-    assert b["mine"] == {"pipeline": "bad", "gemma": None, "gemini": None, "lfm": None} and b["team"]["gemma"] is None
-    assert b["avail"] == {"pipeline": True, "gemma": True, "gemini": False, "lfm": False} and b["ready"]
+    assert b["mine"] == {"pipeline": "bad", "gemma": None, "lfm": None} and b["team"]["gemma"] is None
+    assert b["avail"] == {"pipeline": True, "gemma": True, "lfm": False} and b["ready"]
     assert c["na"] == ["lfm"] and c["avail"]["lfm"] is False and a["avail"]["lfm"] is True
     assert "turns" not in json.dumps(out)
     assert {k: out[k] for k in ("total", "ready", "team_pipeline", "team_done", "my_today")} == {
@@ -38,8 +38,10 @@ def test_listing_rows_per_viewer(galaxy: dict) -> None:
 def test_get_hides_team_votes_until_i_voted(galaxy: dict) -> None:
     gd = get(galaxy["b"], ASHA_CLIENT)
     assert "gemma" not in gd and set(gd["votes"]) == {"pipeline"} and list(gd["lines"]) == ["pipeline"]
+    assert "reference" not in gd and "judge" not in gd
     other = get(galaxy["a"], OTHER)
-    assert other["votes"]["gemma"]["ok"] is None and other["votes"]["gemma"]["notes"] == [] and other["gemini"] is None
+    assert other["votes"]["gemma"]["ok"] is None and other["votes"]["gemma"]["notes"] == [] and "gemini" not in other
+    assert other["reference"] is None and other["judge"] == {} and set(other["votes"]) == {"pipeline", "gemma", "lfm"}
     assert get(galaxy["a"], ASHA)["votes"]["gemma"]["notes"] == ["Asha: clear speech"]
     assert get("nope", ASHA) is None
 
@@ -69,12 +71,14 @@ def test_vote_records_source(galaxy: dict) -> None:
 
 def test_vote_rejections(galaxy: dict, settings) -> None:
     a = galaxy["a"]
+    with pytest.raises(Rejected, match="bad request"):
+        vote(ASHA, a, "gemini", "ok")  # the reference is never voted on
     with pytest.raises(NotReady, match="This result isn't ready"):
-        vote(ASHA, a, "gemini", "ok")  # no Gemini result yet
+        vote(ASHA, galaxy["b"], "lfm", "ok")  # no LFM result yet
     day = settings.results / "Galaxy" / "2026-11-02"
-    (day / "919800000001_20261102-101500.gemini.json").write_text(json.dumps({"error": "quota", "turns": []}))
+    (day / "919800000002_20261102-111500.lfm.json").write_text(json.dumps({"error": "quota", "turns": []}))
     with pytest.raises(NotReady):
-        vote(ASHA, a, "gemini", "bad")  # errored result
+        vote(ASHA, galaxy["b"], "lfm", "bad")  # errored result
     with pytest.raises(NotAllowed):
         vote(ASHA_CLIENT, a, "gemma", "ok")
     for args in (("nope", "pipeline", "ok"), (a, "x", "ok"), (a, "pipeline", "maybe")):

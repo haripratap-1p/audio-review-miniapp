@@ -3,7 +3,8 @@ import json
 from conftest import COST_CHAT
 
 from review_app import viewer
-from review_app.config import SYSTEMS, Settings
+from review_app.config import SCORED, Settings
+from review_app.store import db
 
 COST = "sub____cost"
 
@@ -29,7 +30,7 @@ def test_bad_init_data_and_non_member(api, galaxy: dict) -> None:
 def test_owner_from_client_launcher_gets_full_view_and_team(api, galaxy: dict, settings: Settings) -> None:
     owner_is(settings, 1)
     code, body = api("/api/conversations", 1)
-    assert code == 200 and body["role"] == "tech" and body["is_owner"] and tuple(body["labels"]) == SYSTEMS
+    assert code == 200 and body["role"] == "tech" and body["is_owner"] and tuple(body["labels"]) == SCORED
     assert api("/api/benchmark", 1)[0] == 200 and api("/api/team", 1)[0] == 200
 
 
@@ -72,6 +73,10 @@ def test_vote_routes(api, galaxy: dict, settings: Settings) -> None:
     owner_is(settings, 1)
     a = galaxy["a"]
     assert api("/api/review", 20, COST, body={"id": a, "system": "gemini", "verdict": "ok"}) == (
+        400,
+        {"error": "bad request"},
+    )
+    assert api("/api/review", 20, COST, body={"id": galaxy["b"], "system": "lfm", "verdict": "ok"}) == (
         409,
         {"error": "This result isn't ready"},
     )
@@ -79,3 +84,30 @@ def test_vote_routes(api, galaxy: dict, settings: Settings) -> None:
     assert api("/api/review", 5, body={"id": "nope", "system": "pipeline", "verdict": "ok"})[0] == 400
     code, body = api("/api/review", 5, body={"id": a, "system": "pipeline", "verdict": "ok"})
     assert code == 200 and body["votes"]["pipeline"]["mine"] == "ok" and set(body) == {"votes", "lines"}
+
+
+def test_reference_and_judge_full_view_only(api, galaxy: dict, settings: Settings) -> None:
+    owner_is(settings, 1)
+    day = settings.results / "Galaxy" / "2026-11-02"
+    ref = {"model": "gemini-3.5-flash-lite", "turns": [{"speaker": "Staff", "text": "hi"}]}
+    (day / "919800000001_20261102-101500.gemini.json").write_text(json.dumps(ref))
+    with db() as c:
+        c.execute(
+            "INSERT INTO judge_runs VALUES (?,?,?,?,?,?,?,?,?)", (galaxy["a"], "gemma", 0.5, "r", "m", 1, 1, 0, "t")
+        )
+        c.execute("INSERT INTO judge_lines VALUES (?,?,?,?)", (galaxy["a"], "gemma", 0, "partly"))
+    code, full = api(f"/api/conversation/{galaxy['a']}", 20, COST)
+    assert code == 200 and "gemini" not in full and set(full["votes"]) == set(SCORED)
+    assert full["reference"]["label"] == "Reference (Gemini)" and full["reference"]["turns"] == ref["turns"]
+    assert full["reference"]["model"] == "gemini-3.5-flash-lite"
+    assert full["judge"] == {"gemma": {"score": 0.5, "ref_model": "r", "lines": {"0": "partly"}}}
+    code, client = api(f"/api/conversation/{galaxy['a']}", 5)
+    text = json.dumps(client)
+    assert code == 200 and not any(w in text for w in ("judge", "reference", "gemini", "partly")), text
+    assert "gemini" not in json.dumps(api("/api/conversations", 5)[1])
+    code, bm = api("/api/benchmark", 20, COST)
+    assert code == 200 and list(bm["systems"]) == list(SCORED) and list(bm["labels"]) == list(SCORED)
+    assert bm["systems"]["gemma"]["ai"] == {"judged": 1, "pct": 50}
+    assert bm["systems"]["gemma"]["all"] == {"available": 2, "checked": 1, "correct": 1, "pct": 100}
+    assert bm["agreement"]["all"] == {"pairs": 1, "pct": 0} and bm["agreement"]["pipeline"]["pairs"] == 0
+    assert bm["reference"] == {"label": "Reference (Gemini)", "models": ["gemini-3.5-flash-lite"]}

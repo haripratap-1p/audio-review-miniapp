@@ -15,7 +15,7 @@ STEM = re.compile(r"(?:(.+?)_+)?(\d{4})(\d\d)(\d\d)[-_](\d\d)(\d\d)(\d\d)$")
 SYSTEMS = ("pipeline", "gemma", "gemini", "lfm")
 REFERENCE = "gemini"  # the reference transcript: shown, judged against, never scored or voted
 SCORED = tuple(s for s in SYSTEMS if s != REFERENCE)
-LABELS = {"pipeline": "Audio pipeline", "gemma": "Gemma 4 12B", "gemini": "Gemini 3.6 Flash", "lfm": "LFM3-Omni 2B"}
+LABELS = {"pipeline": "Audio pipeline", "gemma": "Gemma 4 12B", "gemini": "Reference (Gemini)", "lfm": "LFM3-Omni 2B"}
 MEMBER_OK = {"creator", "administrator", "member", "restricted"}
 
 

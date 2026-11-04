@@ -1,15 +1,22 @@
 import html
 from datetime import datetime
 
-from .config import IST, LABELS, SYSTEMS, get_settings
+from .config import IST, LABELS, REFERENCE, SCORED, get_settings
 from .conversations import Conversation, scan
 from .launcher import tunnel_sub
-from .store import all_rows
+from .store import all_rows, judged
 from .telegram import call, launch_url
+
+AI_OK = 0.8  # a judge score at or above this reads as "ok" when compared with the team's verdict
 
 
 def eod_text(
-    convs: list[Conversation], rows: list, today: str, systems: tuple = ("pipeline",), title: str = "Review EOD"
+    convs: list[Conversation],
+    rows: list,
+    today: str,
+    systems: tuple = ("pipeline",),
+    title: str = "Review EOD",
+    judge: dict | None = None,
 ) -> str:
     today_rows = [r for r in rows if r["ts"][:10] == today and r["system"] in systems]
     notes = [r for r in sorted(today_rows, key=lambda r: r["ts"], reverse=True) if r["note"]][:3]
@@ -24,6 +31,13 @@ def eod_text(
         lines.append(f"• {LABELS[s]}: checked {sc['checked']} of {sc['available']}, {pct} correct")
         if sc["pct"] is not None:
             scores.append((sc["pct"], LABELS[s]))
+        if judge is not None:
+            ai = ai_score(convs, s, judge)
+            lines.append(f"• {LABELS[s]} AI judge: {pct_text(ai['pct'])} ({ai['judged']} judged)")
+    if judge is not None:
+        ag = agreement(convs, judge)["all"]
+        lines.append(f"• AI judge agrees with people: {pct_text(ag['pct'])} ({ag['pairs']})")
+        lines.append(f"• {LABELS[REFERENCE]}: not scored, model {', '.join(ref_models(convs)) or 'not known'}")
     if len(systems) > 1:
         top = [n for p, n in scores if p == max(scores)[0]] if scores else []
         best = "—" if not top else " / ".join(top) + (" (tie)" if len(top) > 1 else "")
@@ -52,6 +66,30 @@ def score(sel: list[Conversation], s: str) -> dict:
     }
 
 
+def pct_text(p: int | None) -> str:
+    return f"{p}%" if p is not None else "-"
+
+
+def ai_score(sel: list[Conversation], s: str, judge: dict) -> dict:
+    # mean judge score over judged conversations; kept apart from the people's numbers
+    sc = [judge[(c.id, s)]["score"] for c in sel if (c.id, s) in judge]
+    return {"judged": len(sc), "pct": round(100 * sum(sc) / len(sc)) if sc else None}
+
+
+def agreement(sel: list[Conversation], judge: dict) -> dict:
+    # share of people-checked (system, conversation) pairs where the judge's ok/bad matches the team's verdict
+    def share(ps: list) -> dict:
+        same = sum(("ok" if judge[(c.id, s)]["score"] >= AI_OK else "bad") == c.scored(s) for c, s in ps)
+        return {"pairs": len(ps), "pct": round(100 * same / len(ps)) if ps else None}
+
+    by = {s: [(c, s) for c in sel if (c.id, s) in judge and c.scored(s)] for s in SCORED}
+    return {"all": share([p for ps in by.values() for p in ps]), **{s: share(ps) for s, ps in by.items()}}
+
+
+def ref_models(sel: list[Conversation]) -> list:
+    return sorted({c.results[REFERENCE].get("model") or "" for c in sel if c.available(REFERENCE)} - {""})
+
+
 def benchmark(convs: list[Conversation], rows: list, today: str) -> dict:
     calls = [c for c in convs if c.kind == "call"]
     store = [c for c in convs if c.kind == "in-store"]
@@ -61,10 +99,21 @@ def benchmark(convs: list[Conversation], rows: list, today: str) -> dict:
         p["total"] += 1
         p["today"] += r["ts"][:10] == today
     days = sorted({c.date for c in convs})[-14:]
+    judge = judged()
     return {
-        "labels": LABELS,
-        "systems": {s: {"all": score(convs, s), "call": score(calls, s), "in-store": score(store, s)} for s in SYSTEMS},
-        "days": [{"date": d, **{s: score([c for c in convs if c.date == d], s)["pct"] for s in SYSTEMS}} for d in days],
+        "labels": {s: LABELS[s] for s in SCORED},
+        "systems": {
+            s: {
+                "all": score(convs, s),
+                "call": score(calls, s),
+                "in-store": score(store, s),
+                "ai": ai_score(convs, s, judge),
+            }
+            for s in SCORED
+        },
+        "agreement": agreement(convs, judge),
+        "reference": {"label": LABELS[REFERENCE], "models": ref_models(convs)},
+        "days": [{"date": d, **{s: score([c for c in convs if c.date == d], s)["pct"] for s in SCORED}} for d in days],
         "reviewers": sorted(people.values(), key=lambda p: -p["total"]),
     }
 
@@ -75,7 +124,7 @@ def post_eod(dry: bool) -> None:
     rows = all_rows()
     convs = scan(rows)
     text = eod_text(convs, rows, today)
-    bench = eod_text(convs, rows, today, SYSTEMS, "Benchmark")
+    bench = eod_text(convs, rows, today, SCORED, "Benchmark", judged())
     if dry:
         print(text, bench, sep="\n\n")
         return

@@ -3,7 +3,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from .config import IST, MEMBER_OK, SYSTEMS, get_settings
+from .config import IST, MEMBER_OK, SCORED, get_settings
 from .roles import roles, team_list
 from .store import db
 from .telegram import call, check_init_data, mode
@@ -47,7 +47,7 @@ class Viewer:
 
     @property
     def systems(self) -> tuple:
-        return SYSTEMS if self.full else ("pipeline",)
+        return SCORED if self.full else ("pipeline",)
 
     @property
     def role(self) -> str:

@@ -10,8 +10,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from .config import IST, MAX_LINES, STEM, SYSTEMS, get_settings
-from .store import all_rows, db
+from .config import IST, LABELS, MAX_LINES, REFERENCE, SCORED, STEM, SYSTEMS, get_settings
+from .store import all_rows, db, judged
 from .viewer import Viewer
 
 _extract = threading.Lock()
@@ -256,6 +256,16 @@ def get(cid: str, v: Viewer) -> dict | None:
         "arrived": c.arrived,
         "votes": _votes(c, v),
         "lines": _lines(c, v),
+        **(_reference(c) if v.full else {}),
+    }
+
+
+def _reference(c: Conversation) -> dict:
+    # full view only: the Gemini reference transcript and the AI judge's verdict per scored system
+    ref = c.results[REFERENCE]
+    return {
+        "reference": {**ref, "label": LABELS[REFERENCE]} if ref else None,
+        "judge": {s: j for (_, s), j in judged(c.id).items() if s in SCORED},
     }
 
 
@@ -278,7 +288,7 @@ def _marks(raw: Any, n_turns: int) -> dict | None:
 def vote(v: Viewer, cid: str, system: Any, verdict: Any, note: Any = "", lines: Any = None) -> dict:
     # one submit replaces my whole review of this system: overall verdict plus every line mark; "clear" undoes it
     c = _find(cid, rows=[])
-    if system not in SYSTEMS or verdict not in ("ok", "bad", "clear") or not c:
+    if system not in SCORED or verdict not in ("ok", "bad", "clear") or not c:
         raise Rejected("bad request")
     if system not in v.systems:
         raise NotAllowed("not allowed")
