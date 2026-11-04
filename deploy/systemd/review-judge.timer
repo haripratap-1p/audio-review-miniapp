@@ -1,0 +1,9 @@
+[Unit]
+Description=Review app: run the AI judge daily at 20:00 IST
+
+[Timer]
+OnCalendar=*-*-* 20:00:00 Asia/Kolkata
+Persistent=true
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,11 @@
+[Unit]
+Description=Review app: AI judge compares each model with the Gemini reference (run by review-judge.timer)
+After=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Documents/hp_workspace/audio-review-miniapp/server
+EnvironmentFile=%h/.config/review-app/review.env
+ExecStart=/usr/bin/python3 -u -m review_app.judge
+StandardOutput=append:%h/SanjAI/audio-inference/review_judge.log
+StandardError=append:%h/SanjAI/audio-inference/review_judge.log
