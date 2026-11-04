@@ -43,6 +43,8 @@ class Settings:
     jetson_addr: str  # in-store Jetson host:port, checked while in-store is on
     alert_tag: str  # who the device-offline alerts tag, space separated
     alert_chat: str  # where device-offline alerts go; empty = the client group
+    llm_url: str  # local model (OpenAI-style) that reads replies to the offline alerts
+    llm_model: str
 
     @property
     def tunnel_log(self) -> Path:
@@ -86,6 +88,8 @@ class Settings:
             jetson_addr=env.get("JETSON_ADDR", "100.64.0.82:22"),
             alert_tag=env.get("ALERT_TAG", "@Nikhil_mirajkar @Royjpr"),
             alert_chat=env.get("ALERT_CHAT", ""),
+            llm_url=env.get("LLM_URL", "http://127.0.0.1:8090"),
+            llm_model=env.get("LLM_MODEL", "gemma-4-12B-it"),
         )
 
 

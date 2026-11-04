@@ -40,6 +40,8 @@ ENV_VARS = (
     "JETSON_ADDR",
     "ALERT_TAG",
     "ALERT_CHAT",
+    "LLM_URL",
+    "LLM_MODEL",
 )
 TOKEN = "123:abc"
 
@@ -49,6 +51,7 @@ class FakeTelegram:
         self.calls: list = []  # (method, params)
         self.fail: dict = {}  # method -> error description raised once
         self.next_id = 100
+        self.results: dict = {"getUpdates": []}  # method -> reply
 
     def call(self, method: str, **params: object) -> object:
         self.calls.append((method, params))
@@ -57,7 +60,7 @@ class FakeTelegram:
         if method.startswith("send"):
             self.next_id += 1
             return {"message_id": self.next_id}
-        return True
+        return self.results.get(method, True)
 
     def methods(self) -> list:
         return [m for m, _ in self.calls]
