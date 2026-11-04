@@ -99,7 +99,7 @@ def main() -> None:
             if "." in js.stem:  # model outputs (<stem>.<model>.json) stay out of the group
                 continue
             key = f"{js.parent.parent.name}/{js.stem}"
-            if call_date(js.stem) < st.poster_post_from:
+            if call_date(js.stem) < st.poster_call_date_from:
                 continue
             try:
                 if key not in posted:

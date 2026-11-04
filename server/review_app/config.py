@@ -22,8 +22,8 @@ class Settings:
     token: str
     chat: str
     cost_chat: str
-    post_from: str
-    poster_post_from: str
+    post_from: str  # review list: result folders (day a recording reached us) from this date
+    poster_call_date_from: str  # poster: calls whose file-name date is on or after this; same POST_FROM env
     origin: str
     app_link: str
     port: int
@@ -48,7 +48,7 @@ class Settings:
             chat=env.get("TG_CHAT", ""),
             cost_chat=env.get("TG_COST_CHAT", ""),
             post_from=env.get("POST_FROM", "2026-10-28"),
-            poster_post_from=env.get("POST_FROM", "0000-00-00"),
+            poster_call_date_from=env.get("POST_FROM", "0000-00-00"),
             origin=env.get("REVIEW_ORIGIN", "https://haripratap-1p.github.io"),
             app_link=env.get("REVIEW_APP_LINK", "https://t.me/audio_pipeline_calls_bot/review"),
             port=int(env.get("REVIEW_PORT", "8787")),

@@ -1,25 +1,28 @@
 import time
+from collections.abc import Callable
 from datetime import datetime
 
 from . import launcher, reports, store, workers
 from .config import EOD_HOUR, IST, get_settings
 
-REPIN_STEPS = ("pin_launcher", "pin_cost_launcher", "ensure_card")
 
-
-def run_steps(names: tuple) -> None:
-    for name in names:
+def run_steps(*steps: Callable[[], None]) -> None:
+    for step in steps:
         try:
-            getattr(launcher, name)()
+            step()
         except Exception as e:
-            print(f"{name} failed: {e}", flush=True)
+            print(f"{step.__name__} failed: {e}", flush=True)
+
+
+def repin() -> None:
+    run_steps(launcher.pin_launcher, launcher.pin_cost_launcher, launcher.ensure_card)
 
 
 def tick(last_sub: str) -> str:
     # one scheduler pass; returns the tunnel host the launchers now point at
     sub = launcher.tunnel_sub()
     if sub and sub != last_sub:
-        run_steps(REPIN_STEPS)
+        repin()
         last_sub = sub
     try:
         store.sync_db()
@@ -49,7 +52,8 @@ def scheduler() -> None:
             break
         time.sleep(5)
     last_sub = launcher.tunnel_sub()
-    run_steps(("ensure_owner", *REPIN_STEPS))
+    run_steps(launcher.ensure_owner)
+    repin()
     while True:
         last_sub = tick(last_sub)
         time.sleep(60)
