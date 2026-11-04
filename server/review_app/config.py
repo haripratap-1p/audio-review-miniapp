@@ -1,6 +1,6 @@
 import os
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -13,6 +13,8 @@ IST = ZoneInfo("Asia/Kolkata")
 # call: <number or contact name>_<YYYYMMDD-HHMMSS>; in-store clip: <YYYYMMDD_HHMMSS>
 STEM = re.compile(r"(?:(.+?)_+)?(\d{4})(\d\d)(\d\d)[-_](\d\d)(\d\d)(\d\d)$")
 SYSTEMS = ("pipeline", "gemma", "gemini", "lfm")
+REFERENCE = "gemini"  # the reference transcript: shown, judged against, never scored or voted
+SCORED = tuple(s for s in SYSTEMS if s != REFERENCE)
 LABELS = {"pipeline": "Audio pipeline", "gemma": "Gemma 4 12B", "gemini": "Gemini 3.6 Flash", "lfm": "LFM3-Omni 2B"}
 MEMBER_OK = {"creator", "administrator", "member", "restricted"}
 
@@ -30,6 +32,11 @@ class Settings:
     home: Path
     results: Path
     db: Path
+    gemini_keys: tuple = field(repr=False)
+    judge_model: str
+    judge_cap: int  # judge requests per run
+    judge_price_in: float  # USD per 1M tokens
+    judge_price_out: float  # USD per 1M tokens, thinking included
 
     @property
     def tunnel_log(self) -> Path:
@@ -55,6 +62,11 @@ class Settings:
             home=home,
             results=Path(env.get("RESULTS_BASE", home / "live_results")),
             db=Path(env.get("REVIEW_DB", home / "reviews.db")),
+            gemini_keys=tuple(k.strip() for k in env.get("GEMINI_API_KEYS", "").split(",") if k.strip()),
+            judge_model=env.get("JUDGE_MODEL", "gemini-3.5-flash-lite"),
+            judge_cap=int(env.get("JUDGE_DAILY_CAP", "300")),
+            judge_price_in=float(env.get("JUDGE_PRICE_IN", "0.30")),
+            judge_price_out=float(env.get("JUDGE_PRICE_OUT", "2.50")),
         )
 
 

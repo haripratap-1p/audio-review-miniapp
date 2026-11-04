@@ -18,6 +18,11 @@ CREATE TABLE IF NOT EXISTS visitors (user_id INTEGER PRIMARY KEY, name TEXT, use
 CREATE TABLE IF NOT EXISTS line_reviews (
     conv TEXT, system TEXT, line INTEGER, user_id INTEGER, user_name TEXT, verdict TEXT, note TEXT, ts TEXT,
     PRIMARY KEY (conv, system, line, user_id));
+CREATE TABLE IF NOT EXISTS judge_lines (
+    conv TEXT, system TEXT, line INTEGER, meaning TEXT, PRIMARY KEY (conv, system, line));
+CREATE TABLE IF NOT EXISTS judge_runs (
+    conv TEXT, system TEXT, score REAL, ref_model TEXT, model TEXT, tokens_in INTEGER, tokens_out INTEGER,
+    cost_usd REAL, ts TEXT, PRIMARY KEY (conv, system));
 """
 
 
@@ -82,3 +87,18 @@ def sync_db() -> int:
                         ),
                     )
     return len(convs)
+
+
+def judged(conv: str | None = None) -> dict:
+    # (conv, system) -> {"score", "ref_model", "lines": {"<idx>": meaning}}; lines only for one conv
+    with db() as c:
+        q = "SELECT conv, system, score, ref_model FROM judge_runs" + (" WHERE conv=?" if conv else "")
+        out = {
+            (cv, s): {"score": sc, "ref_model": rm, "lines": {}}
+            for cv, s, sc, rm in c.execute(q, (conv,) if conv else ())
+        }
+        if conv:
+            for s, ln, m in c.execute("SELECT system, line, meaning FROM judge_lines WHERE conv=?", (conv,)):
+                if (conv, s) in out:
+                    out[(conv, s)]["lines"][str(ln)] = m
+    return out

@@ -12,7 +12,7 @@ from pathlib import Path
 
 import pytest
 
-from review_app import http, telegram, viewer
+from review_app import http, judge, telegram, viewer
 from review_app.config import Settings, get_settings
 from review_app.conversations import conv_id
 from review_app.http import Handler
@@ -29,6 +29,11 @@ ENV_VARS = (
     "RESULTS_BASE",
     "REVIEW_DB",
     "REVIEW_HOME",
+    "GEMINI_API_KEYS",
+    "JUDGE_MODEL",
+    "JUDGE_DAILY_CAP",
+    "JUDGE_PRICE_IN",
+    "JUDGE_PRICE_OUT",
 )
 TOKEN = "123:abc"
 
@@ -52,6 +57,28 @@ class FakeTelegram:
         return [m for m, _ in self.calls]
 
 
+class FakeGemini:
+    def __init__(self) -> None:
+        self.calls: list = []  # (model, key, body)
+        self.replies: list = []  # (status, json) used in order; then every line "same"
+
+    def post(self, model: str, key: str, body: dict) -> tuple[int, dict]:
+        self.calls.append((model, key, body))
+        if self.replies:
+            return self.replies.pop(0)
+        n = body["contents"][0]["parts"][0]["text"].split("SYSTEM LINES:\n")[1].count("\n") + 1
+        return 200, reply([{"line": i, "meaning": "same"} for i in range(1, n + 1)])
+
+
+def reply(lines: object, tokens: tuple = (1000, 100, 50)) -> dict:
+    text = json.dumps({"lines": lines}) if not isinstance(lines, str) else lines
+    p, c, t = tokens
+    return {
+        "candidates": [{"content": {"parts": [{"text": text}]}}],
+        "usageMetadata": {"promptTokenCount": p, "candidatesTokenCount": c, "thoughtsTokenCount": t},
+    }
+
+
 class FakeMembership:
     def __init__(self) -> None:
         self.chats: dict = {}  # chat -> set of user ids
@@ -68,6 +95,7 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
     get_settings.cache_clear()
     monkeypatch.setattr(viewer, "membership", FakeMembership())
     monkeypatch.setattr(telegram, "client", FakeTelegram())
+    monkeypatch.setattr(judge, "client", FakeGemini())
     http._writes.clear()
     yield get_settings()
     get_settings.cache_clear()
@@ -76,6 +104,11 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
 @pytest.fixture
 def tg() -> FakeTelegram:
     return telegram.client
+
+
+@pytest.fixture
+def gemini() -> FakeGemini:
+    return judge.client
 
 
 @pytest.fixture
