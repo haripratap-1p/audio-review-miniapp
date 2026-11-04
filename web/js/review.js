@@ -66,7 +66,7 @@ function reviewArea(row, d, sys, after) {
     counter.textContent = vals.length ? `${vals.length} of ${n} lines marked: ${ok} correct, ${vals.length - ok} wrong. Saved only when you submit.`
       : "Optional: mark each line ✓ or ✗, then choose Correct or Wrong for the whole result.";
     body.replaceChildren(transcript(result, "", {
-      marks: draft, ai, edit: true,
+      marks: draft, edit: true,
       onMark: (k, v, note) => { session.mark(row.id, sys, k, v, note); paintBody(); },
     }));
   };
