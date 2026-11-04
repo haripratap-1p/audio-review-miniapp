@@ -1,23 +1,17 @@
 // owner page: who is in the Tech team
-import { tg } from "./state.js?v=__V__";
-import { $app, h, toast, hideToast, skeleton, showError } from "./dom.js?v=__V__";
+import { $app, h, toast, skeleton, showError } from "./dom.js?v=__V__";
 import { fmtDate } from "./format.js?v=__V__";
 import { api } from "./api.js?v=__V__";
-import { stopAudio } from "./player.js?v=__V__";
-import { topbar } from "./nav.js?v=__V__";
+import { topbar } from "./list.js?v=__V__";
+import { go } from "./router.js?v=__V__";
 
-export async function showTeam() {
-  stopAudio();
-  hideToast();
-  if (tg) tg.BackButton.show();
-  $app.classList.remove("wide");
-  $app.classList.add("page");
+export async function renderTeam() {
   $app.replaceChildren(topbar("team"), skeleton());
   let people;
   try {
     people = (await (await api("/api/team")).json()).people;
   } catch (e) {
-    return showError(e, showTeam);
+    return showError(e, () => go("team"));
   }
   const render = () => $app.replaceChildren(topbar("team"),
     h("p", { class: "note pad" }, "Tech team members see Gemma and Gemini results and the benchmark. Everyone else sees only the audio pipeline."),
@@ -31,7 +25,7 @@ export async function showTeam() {
             render();
             toast("Saved");
           } catch (e) {
-            showError(e, showTeam);
+            showError(e, () => go("team"));
           }
         },
       }, h("span", { class: "knob" }), p.tech ? "Tech team" : "General")))));

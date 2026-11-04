@@ -1,12 +1,11 @@
 // review screens: phone queue one result at a time, PC desk with results side by side
-import { tg, state, SYSTEMS, LABEL, has, isDone, nextOpen, notUsed, missingText, queue } from "./state.js?v=__V__";
-import { $app, h, icon, badge, haptic, toast, hideToast, skeleton, showError, confirmSheet, reasonSheet } from "./dom.js?v=__V__";
+import { state, SYSTEMS, LABEL, has, isDone, nextOpen, notUsed, missingText, queue } from "./state.js?v=__V__";
+import { $app, h, icon, badge, haptic, toast, skeleton, showError, confirmSheet, reasonSheet } from "./dom.js?v=__V__";
 import { verdictText, whenText } from "./format.js?v=__V__";
 import { getDetail, prefetch, saveVote, draftOf, guardClose } from "./api.js?v=__V__";
-import { player, stopAudio } from "./player.js?v=__V__";
-import { topbar } from "./nav.js?v=__V__";
-import { showList, sidebarList } from "./list.js?v=__V__";
-import { start } from "./main.js?v=__V__";
+import { player } from "./player.js?v=__V__";
+import { topbar, sidebarList } from "./list.js?v=__V__";
+import { go } from "./router.js?v=__V__";
 
 // lines: { marks: {idx: {verdict, note}}, team: {idx: {ok, bad}}, edit: bool, onMark(idx, verdict|null, note) }
 function transcript(result, pending, lines) {
@@ -100,28 +99,21 @@ function reviewArea(row, d, sys, after) {
   };
 }
 
-export const wide = () => matchMedia("(min-width: 1000px)").matches;
-
-export async function showReview(id, startSys) {
-  if (wide()) return showDesk(id);
-  stopAudio();
-  hideToast();
+export async function renderReview(id) {
   const q = queue();
   const row = state.items.find((i) => i.id === id) || q[0];
-  if (!row) return showDone();
+  if (!row) return go("done");
   state.kind = row.kind;
   state.current = row.id;
-  $app.classList.remove("wide", "page");
-  if (tg) tg.BackButton.hide();
   $app.replaceChildren(topbar("queue"), skeleton());
   let d;
   try {
     d = await getDetail(row.id);
   } catch (e) {
-    return showError(e, () => showReview(row.id, startSys));
+    return showError(e, () => go("review", row.id));
   }
   prefetch(q.find((i) => i.id !== row.id)?.id);
-  let cur = startSys || nextOpen(row) || "pipeline";
+  let cur = nextOpen(row) || "pipeline";
   const audio = player(row.id);
   const tabs = h("div", { class: "tabs", role: "tablist" });
   const panel = h("section", { class: "panel", role: "tabpanel" });
@@ -145,19 +137,16 @@ export async function showReview(id, startSys) {
     done.push(cur);
     const nextSys = nextOpen(row, cur);
     if (nextSys) { cur = nextSys; return paint(); }
-    audio.stop();
-    if (done.length) state.myToday += 1;
-    const next = queue()[0];
-    if (done.length) toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); showReview(row.id, "pipeline"); } });
-    next ? showReview(next.id) : showDone();
+    state.myToday += 1;
+    go("next");
+    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); go("review", row.id); } });
   };
 
   const skip = () => {
-    audio.stop();
     state.skipped = [...state.skipped.filter((x) => x !== row.id), row.id];
     try { sessionStorage.setItem("skipped", JSON.stringify(state.skipped)); } catch {}
     const next = queue().find((i) => i.id !== row.id);
-    next ? showReview(next.id) : showDone();
+    next ? go("review", next.id) : go("done");
   };
 
   $app.replaceChildren(topbar("queue"),
@@ -168,38 +157,30 @@ export async function showReview(id, startSys) {
   paint();
 }
 
-export function showDone() {
-  if (wide()) return showDesk();
-  stopAudio();
-  if (tg) tg.BackButton.hide();
+export function renderDone() {
   $app.replaceChildren(topbar("queue"), h("section", { class: "message" },
     h("h1", {}, "You're up to date"),
     h("p", {}, state.myToday ? `You've checked ${state.myToday} conversation${state.myToday === 1 ? "" : "s"} today.` : "Nothing is waiting for you right now."),
     h("p", { class: "note" }, "New conversations appear here as they're processed."),
-    h("button", { class: "btn primary", onclick: start }, "Refresh"),
-    h("button", { class: "link", onclick: showList }, "See all conversations")));
+    h("button", { class: "btn primary", onclick: () => go("refresh") }, "Refresh"),
+    h("button", { class: "link", onclick: () => go("list") }, "See all conversations")));
 }
 
 // PC / laptop: list on the left, both results side by side
-export async function showDesk(id) {
-  $app.classList.remove("page");
-  stopAudio();
-  hideToast();
-  if (tg) tg.BackButton.hide();
-  $app.classList.add("wide");
+export async function renderDesk(id) {
   const row = state.items.find((i) => i.id === id) || queue()[0] || state.items.find((i) => i.kind === state.kind);
   if (row) state.kind = row.kind;
   state.current = row?.id;
   const main = h("div", { class: "desk-main" });
   $app.replaceChildren(h("div", { class: "desk" }, sidebarList(row?.id), main));
   if (!row) return main.replaceChildren(h("section", { class: "message" }, h("h1", {}, "You're up to date"),
-    h("p", { class: "note" }, "New conversations appear here as they're processed."), h("button", { class: "btn primary", onclick: start }, "Refresh")));
+    h("p", { class: "note" }, "New conversations appear here as they're processed."), h("button", { class: "btn primary", onclick: () => go("refresh") }, "Refresh")));
   main.replaceChildren(skeleton());
   let d;
   try {
     d = await getDetail(row.id);
   } catch (e) {
-    return showError(e, () => showDesk(row.id));
+    return showError(e, () => go("review", row.id));
   }
   if (state.current !== row.id) return;  // user clicked another row meanwhile
   prefetch(queue().find((i) => i.id !== row.id)?.id);
@@ -217,10 +198,9 @@ export async function showDesk(id) {
   const vote = (sys) => {
     done.push(sys);
     if (!isDone(row)) return paint();
-    audio.stop();
-    if (done.length) state.myToday += 1;
-    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); showDesk(row.id); } });
-    showDesk(queue()[0]?.id || row.id);
+    state.myToday += 1;
+    go("review", queue()[0]?.id || row.id);
+    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); go("review", row.id); } });
   };
   paint();
   main.replaceChildren(

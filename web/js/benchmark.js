@@ -1,10 +1,9 @@
 // Tech team benchmark: % correct per system, calls vs in-store, daily trend, reviewers
-import { tg } from "./state.js?v=__V__";
-import { $app, h, hideToast, skeleton, showError } from "./dom.js?v=__V__";
+import { $app, h, skeleton, showError } from "./dom.js?v=__V__";
 import { fmtDate } from "./format.js?v=__V__";
 import { api } from "./api.js?v=__V__";
-import { stopAudio } from "./player.js?v=__V__";
-import { topbar } from "./nav.js?v=__V__";
+import { topbar } from "./list.js?v=__V__";
+import { go } from "./router.js?v=__V__";
 
 function pctText(sc) { return sc && sc.pct != null ? `${sc.pct}%` : "–"; }
 
@@ -52,18 +51,13 @@ function trendChart(days, systems) {
   return svg;
 }
 
-export async function showBenchmark() {
-  stopAudio();
-  hideToast();
-  if (tg) tg.BackButton.show();
-  $app.classList.remove("wide");
-  $app.classList.add("page");
+export async function renderBenchmark() {
   $app.replaceChildren(topbar("benchmark"), skeleton());
   let b;
   try {
     b = await (await api("/api/benchmark")).json();
   } catch (e) {
-    return showError(e, showBenchmark);
+    return showError(e, () => go("benchmark"));
   }
   const sys = Object.keys(b.systems);
   const card = (s, n) => h("section", { class: `score s${n}` },
