@@ -2,7 +2,7 @@
 import { tg, state, queue } from "./state.js?v=__V__";
 import { $app, skeleton, message, showError, hideToast } from "./dom.js?v=__V__";
 import { initTheme } from "./theme.js?v=__V__";
-import { API, INIT, openId, loadList } from "./api.js?v=__V__";
+import { API, INIT, openId, loadList, session } from "./api.js?v=__V__";
 import { stopAudio } from "./player.js?v=__V__";
 import { initRouter, go } from "./router.js?v=__V__";
 import { renderReview, renderDesk, renderDone } from "./review.js?v=__V__";
@@ -19,6 +19,7 @@ async function start() {
   } catch (e) {
     return showError(e, () => go("refresh"));
   }
+  session.start();
   const target = openId && state.items.find((i) => i.id === openId);
   target ? go("review", target.id) : go("next");
 }

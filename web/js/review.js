@@ -2,7 +2,7 @@
 import { state, SYSTEMS, LABEL, has, isDone, nextOpen, notUsed, missingText, queue } from "./state.js?v=__V__";
 import { $app, h, icon, badge, haptic, toast, skeleton, showError, confirmSheet, reasonSheet } from "./dom.js?v=__V__";
 import { verdictText, whenText } from "./format.js?v=__V__";
-import { getDetail, prefetch, saveVote, draftOf, guardClose } from "./api.js?v=__V__";
+import { getDetail, prefetch, session } from "./api.js?v=__V__";
 import { player } from "./player.js?v=__V__";
 import { topbar, sidebarList } from "./list.js?v=__V__";
 import { go } from "./router.js?v=__V__";
@@ -41,14 +41,13 @@ function transcript(result, pending, lines) {
 // one system's review: transcript with line marks, then Correct/Wrong behind a confirm, or my saved review with Undo
 function reviewArea(row, d, sys, after) {
   const result = d[sys], saved = row.mine[sys], n = (result?.turns || []).length;
-  const info = (d.lines && d.lines[sys]) || { mine: {}, team: {} };
+  const info = session.lines(row.id, sys, d);
   if (!has(row, sys)) return { ask: "Nothing to check yet", body: transcript(null, missingText(row, sys)), actions: null };
   if (saved) {
     const undo = () => confirmSheet("Undo your review?",
       [`Your “${verdictText(saved)}” for ${LABEL[sys]} on ${row.who} and your line marks will be removed.`, "It goes back to To review."],
       "Undo my review", "bad solid", () => {
-        saveVote(row.id, sys, "clear");
-        if (d.lines) d.lines[sys] = { mine: {}, team: {} };
+        session.undo(row.id, sys);
         haptic("warning");
         toast("Review removed");
         after("undo");
@@ -59,20 +58,19 @@ function reviewArea(row, d, sys, after) {
       actions: h("div", { class: "row saved" }, badge(saved, `You said ${verdictText(saved)}`), h("button", { class: "btn quiet", onclick: undo }, "Undo my review")),
     };
   }
-  const draft = draftOf(row.id, sys);
   const body = h("div", {});
   const counter = h("p", { class: "note counter", "aria-live": "polite" });
   const paintBody = () => {
-    const vals = Object.values(draft), ok = vals.filter((m) => m.verdict === "ok").length;
+    const draft = session.draft(row.id, sys), vals = Object.values(draft), ok = vals.filter((m) => m.verdict === "ok").length;
     counter.textContent = vals.length ? `${vals.length} of ${n} lines marked: ${ok} correct, ${vals.length - ok} wrong. Saved only when you submit.`
       : "Optional: mark each line ✓ or ✗, then choose Correct or Wrong for the whole result.";
     body.replaceChildren(transcript(result, "", {
       marks: draft, edit: true,
-      onMark: (k, v, note) => { v ? (draft[k] = { verdict: v, note }) : delete draft[k]; guardClose(); paintBody(); },
+      onMark: (k, v, note) => { session.mark(row.id, sys, k, v, note); paintBody(); },
     }));
   };
   const submit = (v, note) => {
-    const vals = Object.values(draft), bad = vals.filter((m) => m.verdict === "bad").length, good = vals.length - bad;
+    const vals = Object.values(session.draft(row.id, sys)), bad = vals.filter((m) => m.verdict === "bad").length, good = vals.length - bad;
     const lines = [
       `${LABEL[sys]} · ${row.who}`,
       h("span", {}, "Whole result: ", badge(v, verdictText(v)), note ? ` (${note})` : ""),
@@ -81,10 +79,7 @@ function reviewArea(row, d, sys, after) {
       v === "bad" && vals.length && !bad ? { warn: true, text: "Every marked line is correct but the whole result is Wrong. Check before submitting." } : null,
     ];
     confirmSheet("Submit this review?", lines, "Submit review", v === "ok" ? "ok solid" : "bad solid", () => {
-      saveVote(row.id, sys, v, note, { ...draft });
-      if (d.lines) d.lines[sys] = { mine: { ...draft }, team: {} };
-      state.drafts.delete(`${row.id}|${sys}`);
-      guardClose();
+      session.submit(row.id, sys, v, note);
       haptic(v === "ok" ? "success" : "warning");
       after(v);
     });
@@ -137,9 +132,8 @@ export async function renderReview(id) {
     done.push(cur);
     const nextSys = nextOpen(row, cur);
     if (nextSys) { cur = nextSys; return paint(); }
-    state.myToday += 1;
     go("next");
-    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); go("review", row.id); } });
+    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => session.undo(row.id, s)); go("review", row.id); } });
   };
 
   const skip = () => {
@@ -198,9 +192,8 @@ export async function renderDesk(id) {
   const vote = (sys) => {
     done.push(sys);
     if (!isDone(row)) return paint();
-    state.myToday += 1;
     go("review", queue()[0]?.id || row.id);
-    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => saveVote(row.id, s, "clear")); go("review", row.id); } });
+    toast("Saved", { label: "Undo", run: () => { done.forEach((s) => session.undo(row.id, s)); go("review", row.id); } });
   };
   paint();
   main.replaceChildren(

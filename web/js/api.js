@@ -1,6 +1,7 @@
-// review server calls, background vote saving and draft line marks
+// review server calls, list and detail loading, and the review session
 import { tg, state, setLabels } from "./state.js?v=__V__";
-import { toast, showError } from "./dom.js?v=__V__";
+import { toast, message } from "./dom.js?v=__V__";
+import { createSession } from "./session.js?v=__V__";
 
 const params = new URLSearchParams(location.search);
 const startParam = (tg && tg.initDataUnsafe && tg.initDataUnsafe.start_param) || params.get("tgWebAppStartParam") || "";
@@ -64,43 +65,14 @@ export function prefetch(id) {
   getAudio(id).catch(() => {});
 }
 
-// votes are saved in the background; failures are retried so the reviewer never waits
-export function saveVote(id, system, verdict, note = "", lines = null) {
-  const row = state.items.find((i) => i.id === id);
-  if (row) row.mine[system] = verdict === "clear" ? null : verdict;
-  state.pending.push({ id, system, verdict, note, ...(lines ? { lines } : {}) });
-  guardClose();
-  flush();
-}
-
-// line marks are drafts until the review is submitted; closing the app with drafts or unsent votes asks first
-export const draftOf = (id, s) => {
-  const k = `${id}|${s}`;
-  if (!state.drafts.has(k)) state.drafts.set(k, {});
-  return state.drafts.get(k);
-};
-export const hasDrafts = () => [...state.drafts.values()].some((m) => Object.keys(m).length);
-export function guardClose() {
-  if (!tg) return;
-  if (state.pending.length || hasDrafts()) tg.enableClosingConfirmation && tg.enableClosingConfirmation();
-  else tg.disableClosingConfirmation && tg.disableClosingConfirmation();
-}
-
-export async function flush() {
-  if (flush.busy) return;
-  flush.busy = true;
-  while (state.pending.length) {
-    const v = state.pending[0];
-    try {
-      await api("/api/review", { method: "POST", body: JSON.stringify(v) });
-      state.pending.shift();
-      state.details.delete(v.id);
-    } catch (e) {
-      if (e.status === 401 || e.status === 403) { state.pending = []; flush.busy = false; return showError(e); }
-      toast("Couldn't save yet, retrying…");
-      await new Promise((r) => setTimeout(r, 5000));
-    }
-  }
-  flush.busy = false;
-  guardClose();
-}
+// votes, drafts and undo live in the session; this wires it to the browser
+let store = null;
+try { store = localStorage; } catch {}
+export const session = createSession({
+  fetch: (...a) => fetch(...a), base: API, initData: INIT, storage: store, tg, state,
+  userId: (tg && tg.initDataUnsafe && tg.initDataUnsafe.user && tg.initDataUnsafe.user.id) || "",
+});
+session.onChange((e) => {
+  if (e.toast) toast(e.toast);
+  if (e.expired) message("Reviews waiting", `Session expired: close and reopen from the pinned message; ${e.expired} review${e.expired === 1 ? "" : "s"} will be sent.`);
+});
