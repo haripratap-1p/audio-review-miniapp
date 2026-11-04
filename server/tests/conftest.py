@@ -1,15 +1,20 @@
 import hashlib
 import hmac
 import json
+import threading
 import time
+import urllib.error
 import urllib.parse
+import urllib.request
 from collections.abc import Callable, Iterator
+from http.server import ThreadingHTTPServer
 from pathlib import Path
 
 import pytest
 
-from review_app import results, telegram, views
+from review_app import results, viewer, views
 from review_app.config import Settings, get_settings
+from review_app.http import Handler
 from review_app.results import conv_id
 from review_app.store import db
 
@@ -28,6 +33,14 @@ ENV_VARS = (
 TOKEN = "123:abc"
 
 
+class FakeMembership:
+    def __init__(self) -> None:
+        self.chats: dict = {}  # chat -> set of user ids
+
+    def is_member(self, uid: int, chat: str) -> bool:
+        return uid in self.chats.get(chat, set())
+
+
 @pytest.fixture(autouse=True)
 def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settings]:
     for k in ENV_VARS:
@@ -35,7 +48,7 @@ def settings(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> Iterator[Settin
     monkeypatch.setenv("REVIEW_HOME", str(tmp_path))
     get_settings.cache_clear()
     results._cache.clear()
-    telegram._members.clear()
+    monkeypatch.setattr(viewer, "membership", FakeMembership())
     views._writes.clear()
     yield get_settings()
     get_settings.cache_clear()
@@ -86,5 +99,35 @@ def galaxy(settings: Settings) -> dict:
             (a, "gemma", 1, "Asha", "ok", "clear speech", "2026-11-02T18:01"),
             (b, "pipeline", 1, "Asha", "bad", "", "2026-11-02T18:02"),
         ):
-            c.execute("INSERT INTO reviews VALUES (?,?,?,?,?,?,?)", row)
+            c.execute(
+                "INSERT INTO reviews (conv, system, user_id, user_name, verdict, note, ts) VALUES (?,?,?,?,?,?,?)", row
+            )
     return {"a": a, "b": b, "results": settings.results}
+
+
+CHAT, COST_CHAT = "-1", "-100"
+
+
+@pytest.fixture
+def api(set_env: Callable, fields: dict) -> Iterator[Callable[..., tuple]]:
+    # the real Handler on an ephemeral port; members: client group 1-9, cost group 20-29
+    set_env(TG_TOKEN=TOKEN, TG_CHAT=CHAT, TG_COST_CHAT=COST_CHAT)
+    viewer.membership.chats = {CHAT: set(range(1, 10)), COST_CHAT: set(range(20, 30))}
+    srv = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
+    threading.Thread(target=srv.serve_forever, args=(0.05,), daemon=True).start()
+
+    def call(path: str, uid: int, launch: str = "sub", body: dict | None = None, tamper: bool = False) -> tuple:
+        user = json.dumps({"id": uid, "first_name": f"U{uid}"})
+        init = sign({**fields, "user": user, "start_param": launch})
+        init = init.replace("U", "X") if tamper else init
+        data = json.dumps(body).encode() if body is not None else None
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_port}{path}", data, {"X-Init-Data": init})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read() or b"null")
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read() or b"null")
+
+    yield call
+    srv.shutdown()
+    srv.server_close()

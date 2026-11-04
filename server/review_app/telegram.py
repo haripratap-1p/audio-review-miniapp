@@ -6,9 +6,7 @@ import urllib.parse
 import urllib.request
 from typing import Any
 
-from .config import MEMBER_OK, SYSTEMS, get_settings
-
-_members: dict = {}  # (chat, user_id) -> (is_member, checked_at)
+from .config import get_settings
 
 
 def check_init_data(init: str, token: str, max_age: int = 86400) -> dict | None:
@@ -35,10 +33,6 @@ def mode(start_param: str) -> str:
     return "cost" if len(parts) > 2 and parts[2] == "cost" and get_settings().cost_chat else "client"
 
 
-def view(u: dict) -> tuple:
-    return SYSTEMS if u.get("_mode") == "cost" else ("pipeline",)
-
-
 def tg_api(method: str, _timeout: int = 30, **params: Any) -> dict:
     req = urllib.request.Request(
         f"https://api.telegram.org/bot{get_settings().token}/{method}",
@@ -47,15 +41,3 @@ def tg_api(method: str, _timeout: int = 30, **params: Any) -> dict:
     )
     with urllib.request.urlopen(req, timeout=_timeout) as r:
         return json.load(r)
-
-
-def is_member(uid: int, chat: str = "") -> bool:
-    chat = chat or get_settings().chat
-    ok, at = _members.get((chat, uid), (False, 0))
-    if time.time() - at > 3600:
-        try:
-            ok = tg_api("getChatMember", chat_id=chat, user_id=uid)["result"]["status"] in MEMBER_OK
-        except Exception:
-            ok = False
-        _members[(chat, uid)] = (ok, time.time())
-    return ok

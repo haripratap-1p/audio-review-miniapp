@@ -1,6 +1,6 @@
 import json
 
-from .config import SYSTEMS, get_settings
+from .config import get_settings
 from .store import db
 
 
@@ -9,16 +9,6 @@ def roles() -> dict:
         return json.loads(get_settings().roles_file.read_text())
     except (OSError, ValueError):
         return {"owner": None, "tech": []}
-
-
-def is_tech(uid: int) -> bool:
-    r = roles()
-    return uid == r.get("owner") or uid in r.get("tech", [])
-
-
-def systems_for(uid: int) -> tuple:
-    # General users only ever get our audio pipeline; Tech gets every system
-    return SYSTEMS if is_tech(uid) else ("pipeline",)
 
 
 def set_tech(uid: int, on: bool) -> None:
