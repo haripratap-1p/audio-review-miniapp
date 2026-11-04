@@ -1,6 +1,6 @@
 import pytest
 
-from review_app import launcher, reports, scheduler, store, workers
+from review_app import devices, launcher, reports, scheduler, store, workers
 
 
 @pytest.fixture
@@ -22,6 +22,7 @@ def fakes(monkeypatch: pytest.MonkeyPatch) -> dict:
         monkeypatch.setattr(launcher, f.__name__, f)
     monkeypatch.setattr(store, "sync_db", lambda: 0)
     monkeypatch.setattr(workers, "check_workers", lambda: None)
+    monkeypatch.setattr(devices, "check_devices", lambda: None)
     monkeypatch.setattr(reports, "post_eod", lambda dry: None)
     return state
 

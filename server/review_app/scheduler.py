@@ -2,7 +2,7 @@ import time
 from collections.abc import Callable
 from datetime import datetime
 
-from . import launcher, reports, store, workers
+from . import devices, launcher, reports, store, workers
 from .config import EOD_HOUR, IST, get_settings
 
 
@@ -32,6 +32,10 @@ def tick(last_sub: str) -> str:
         workers.check_workers()
     except Exception as e:
         print(f"worker check failed: {e}", flush=True)
+    try:
+        devices.check_devices()
+    except Exception as e:
+        print(f"device check failed: {e}", flush=True)
     sent = get_settings().home / "review_eod_sent.txt"
     now = datetime.now(IST)
     today = now.strftime("%Y-%m-%d")
