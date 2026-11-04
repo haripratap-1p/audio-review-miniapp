@@ -23,6 +23,52 @@ deploy/    systemd user units, env example, install script for thor02
 ```
 
 ## How it fits together
+
+```mermaid
+flowchart TB
+  subgraph STORE["Galaxy store"]
+    P["Store phone<br/>call recorder + Termux uploader"]
+    J["Jetson<br/>CCTV event clips (paused)"]
+  end
+  T["Office tower<br/>call recordings"]
+  subgraph PIPE["thor02 · audio pipeline (outside this repo)"]
+    W["live_watcher<br/>polls every 60 s"]
+    AP["Whisper + pyannote + Gemma 3"]
+    R[("live_results")]
+    G["Gemma 4 12B"]
+    L["LFM3-Omni 2B"]
+    GM["Gemini · reference"]
+  end
+  subgraph APP["thor02 · review app (this repo, server/)"]
+    PO["review-poster"]
+    API["review-api"]
+    DB[("reviews.db")]
+    SCH["scheduler · every minute"]
+    JU["review-judge · 20:00 IST"]
+    TUN["review-tunnel · Cloudflare"]
+  end
+  subgraph TG["Telegram"]
+    CG["Client group"]
+    CO["Cost group"]
+    AG["Alert group"]
+    MA["Mini App · GitHub Pages (web/)"]
+  end
+  P -- "Tailscale upload" --> T --> W
+  J -.-> W
+  W --> AP --> R
+  R --> G & L & GM
+  G & L & GM -- "stem.model.json" --> R
+  R --> PO -- "audio + transcript + Review button" --> CG
+  R --> API <--> DB
+  CG -- "launcher / Review button" --> MA
+  CO -- "pinned card" --> MA
+  MA -- "HTTPS + signed initData" --> TUN --> API
+  SCH -- "device offline" --> AG
+  SCH -- "worker stopped" --> CO
+  SCH -- "19:00 day summary" --> CG & CO
+  JU -- "line marks vs reference" --> DB
+```
+
 1. The audio pipeline writes results to `live_results/<store>/<YYYY-MM-DD>/<stem>.json` (plus
    `<stem>.<model>.json` for each model) on thor02.
 2. `review_app.poster` posts each new conversation to the client group with a 📝 Review button.
