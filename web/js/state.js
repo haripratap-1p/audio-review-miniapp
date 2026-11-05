@@ -15,7 +15,7 @@ export const REASONS = ["Wrong words", "Wrong speakers", "Wrong mood", "Missing 
 
 export const state = {
   items: [], total: 0, ready: 0, teamPipeline: 0, myToday: 0, filter: "all", kind: "call", day: null,
-  skipped: [], details: new Map(), audio: new Map(),
+  skipped: [], details: new Map(),
 };
 
 // a system skipped because it doesn't support the conversation's language (LFM3: English only)

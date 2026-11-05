@@ -118,7 +118,7 @@ export async function renderReview(id) {
   }
   prefetch(q.find((i) => i.id !== row.id)?.id);
   let cur = nextOpen(row) || "pipeline";
-  const audio = player(row.id);
+  const audio = player(d.audio);
   const tabs = h("div", { class: "tabs", role: "tablist" });
   const panel = h("section", { class: "panel", role: "tabpanel" });
   const verdict = h("div", { class: "verdict" });
@@ -189,7 +189,7 @@ export async function renderDesk(id) {
   }
   if (state.current !== row.id) return;  // user clicked another row meanwhile
   prefetch(queue().find((i) => i.id !== row.id)?.id);
-  const audio = player(row.id);
+  const audio = player(d.audio);
   const done = [];
   const column = (sys) => {
     const ra = reviewArea(row, d, sys, (v) => (v === "undo" ? paint() : vote(sys)));

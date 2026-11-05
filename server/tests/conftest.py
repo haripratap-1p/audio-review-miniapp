@@ -194,6 +194,7 @@ def api(set_env: Callable, fields: dict) -> Iterator[Callable[..., tuple]]:
         except urllib.error.HTTPError as e:
             return e.code, json.loads(e.read() or b"null")
 
+    call.port = srv.server_port  # type: ignore[attr-defined]
     yield call
     srv.shutdown()
     srv.server_close()

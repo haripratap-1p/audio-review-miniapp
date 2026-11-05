@@ -52,18 +52,8 @@ export function getDetail(id) {
   return state.details.get(id);
 }
 
-export function getAudio(id) {
-  if (!state.audio.has(id)) {
-    state.audio.set(id, api(`/api/audio/${id}`).then((r) => r.blob()).then((b) => URL.createObjectURL(b))
-      .catch((e) => { state.audio.delete(id); throw e; }));
-  }
-  return state.audio.get(id);
-}
-
 export function prefetch(id) {
-  if (!id) return;
-  getDetail(id).catch(() => {});
-  getAudio(id).catch(() => {});
+  if (id) getDetail(id).catch(() => {});
 }
 
 // votes, drafts and undo live in the session; this wires it to the browser

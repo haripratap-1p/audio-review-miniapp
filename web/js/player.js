@@ -1,14 +1,16 @@
 // recording player; only one recording plays at a time and any screen change stops it
 import { h, icon } from "./dom.js?v=__V__";
-import { getAudio } from "./api.js?v=__V__";
+import { API } from "./api.js?v=__V__";
 
 export function stopAudio() {
   if (player.active) player.active.pause();
 }
 
-export function player(id) {
+// link: the signed /api/audio path from the conversation detail; the browser streams it in ranges
+export function player(link) {
   stopAudio();
   const audio = new Audio();
+  audio.preload = "metadata";
   player.active = audio;
   const btn = h("button", { class: "play", disabled: true, "aria-label": "Play recording" }, icon("play"));
   const speed = h("button", { class: "chip", disabled: true, "aria-label": "Playback speed" }, "1×");
@@ -32,8 +34,13 @@ export function player(id) {
     const r = track.getBoundingClientRect();
     if (audio.duration) audio.currentTime = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width)) * audio.duration;
   });
-  getAudio(id).then((url) => { audio.src = url; btn.disabled = speed.disabled = false; paint(); })
-    .catch(() => { time.textContent = "Recording unavailable"; });
+  audio.addEventListener("error", () => { btn.disabled = speed.disabled = true; time.textContent = "Recording unavailable"; });
+  if (link) {
+    audio.src = API + link;
+    btn.disabled = speed.disabled = false;
+  } else {
+    time.textContent = "Recording unavailable";
+  }
   const box = h("section", { class: "player" }, btn, track, time, speed);
   box.stop = () => audio.pause();
   return box;

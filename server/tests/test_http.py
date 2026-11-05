@@ -111,3 +111,34 @@ def test_reference_and_judge_full_view_only(api, galaxy: dict, settings: Setting
     assert bm["systems"]["gemma"]["all"] == {"available": 2, "checked": 1, "correct": 1, "pct": 100}
     assert bm["agreement"]["all"] == {"pairs": 1, "pct": 0} and bm["agreement"]["pipeline"]["pairs"] == 0
     assert bm["reference"] == {"label": "Reference (Gemini)", "models": ["gemini-3.5-flash-lite"]}
+
+
+def test_audio_streams_by_signed_link_with_ranges(api, galaxy: dict, monkeypatch) -> None:
+    import time
+    import urllib.error
+    import urllib.request
+
+    from review_app import http
+
+    day = galaxy["results"] / "Galaxy" / "2026-11-02"
+    (day / "audio").mkdir()
+    (day / "audio" / "919800000001_20261102-101500.m4a").write_bytes(b"0123456789")
+    link = api(f"/api/conversation/{galaxy['a']}", 5)[1]["audio"]
+
+    def get(path: str, rng: str = "") -> tuple:
+        req = urllib.request.Request(f"http://127.0.0.1:{api.port}{path}", headers={"Range": rng} if rng else {})
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, r.read(), r.headers.get("Content-Range"), r.headers.get("Accept-Ranges")
+        except urllib.error.HTTPError as e:
+            return e.code, e.read(), None, None
+
+    assert get(link) == (200, b"0123456789", None, "bytes")  # no X-Init-Data needed
+    assert get(link, "bytes=2-4")[:3] == (206, b"234", "bytes 2-4/10")
+    assert get(link, "bytes=7-")[:3] == (206, b"789", "bytes 7-9/10")
+    assert get(link, "bytes=-2")[:3] == (206, b"89", "bytes 8-9/10")  # player reads the index at the end first
+    assert get(link, "bytes=20-")[0] == 416
+    assert get(link.replace(galaxy["a"], galaxy["b"]))[0] == 403  # a link opens only its own recording
+    assert get(f"/api/audio/{galaxy['a']}")[0] == 403
+    monkeypatch.setattr(time, "time", lambda: 2e9)  # 2033: the link has expired
+    assert get(link)[0] == 403 and http.AUDIO_TTL == 6 * 3600
