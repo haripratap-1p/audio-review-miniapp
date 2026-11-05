@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from .config import get_settings
 from .telegram import call
 
-ALERT_AT = (5, 30, 60, 90)  # minutes offline when an alert goes out; quiet after the last until back online
+ALERT_AT = (10, 30, 60, 90)  # minutes offline when an alert goes out; quiet after the last until back online
 PHONE_STEPS = (
     "1. Keep the phone on, charging and connected to the internet.\n"
     "2. Open Tailscale and check it says Connected.\n"

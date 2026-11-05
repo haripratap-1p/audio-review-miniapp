@@ -27,22 +27,22 @@ def test_span() -> None:
 def test_step_schedule() -> None:
     s, ev, _ = step({}, False, T0)
     assert s == {"since": T0, "alerts": 0} and ev is None
-    assert step(s, False, T0 + 4 * 60)[1] is None
-    s, ev, mins = step(s, False, T0 + 5 * 60)
-    assert ev == "down" and mins == 5 and s["alerts"] == 1
+    assert step(s, False, T0 + 9 * 60)[1] is None
+    s, ev, mins = step(s, False, T0 + 10 * 60)
+    assert ev == "down" and mins == 10 and s["alerts"] == 1
     s, ev, mins = step(s, False, T0 + 70 * 60)  # missed ticks: one alert for the latest step, not two
     assert ev == "down" and mins == 60 and s["alerts"] == 3
     assert step({}, True, T0) == ({}, None, 0)  # never alerted: no back-online note
 
 
-def test_phone_alerts_at_5_30_60_90_then_quiet(settings: Settings, set_env, tg: FakeTelegram) -> None:
+def test_phone_alerts_at_10_30_60_90_then_quiet(settings: Settings, set_env, tg: FakeTelegram) -> None:
     set_env(TG_CHAT="-1", INSTORE="false")
     run(range(0, 121))
     sent = texts(tg)
     posts = [p for m, p in tg.calls if m == "sendMessage"]
     assert len(sent) == 4 and all(p["chat_id"] == "-1" and p["parse_mode"] == "HTML" for p in posts)
-    assert [s.split("offline (")[1].split(")")[0] for s in sent] == ["5 min", "30 min", "1 h", "1 h 30 min"]
-    assert sent[0].startswith("📵 <b>Galaxy store phone is offline (5 min)</b>\n\n@Nikhil_mirajkar @Royjpr please")
+    assert [s.split("offline (")[1].split(")")[0] for s in sent] == ["10 min", "30 min", "1 h", "1 h 30 min"]
+    assert sent[0].startswith("📵 <b>Galaxy store phone is offline (10 min)</b>\n\n@Nikhil_mirajkar @Royjpr please")
     assert "3. Open Termux, type sshd and press Enter." in sent[0] and sent[0].endswith("Reply here when done.")
     assert sent[3].endswith("Last reminder. We will post here when it is back.")
     run([125], up=True)
@@ -53,13 +53,13 @@ def test_phone_alerts_at_5_30_60_90_then_quiet(settings: Settings, set_env, tg: 
 
 def test_short_blip_and_restart_keep_quiet(settings: Settings, set_env, tg: FakeTelegram) -> None:
     set_env(TG_CHAT="-1", INSTORE="false")
-    run([0, 3])
-    run([4], up=True)
+    run([0, 9])
+    run([9.5], up=True)
     assert texts(tg) == []
-    run([10, 14])  # down again from minute 10; state is on disk, so a restart picks up where it was
+    run([10, 19])  # down again from minute 10; state is on disk, so a restart picks up where it was
     assert texts(tg) == []
-    run([15])
-    assert "offline (5 min)" in texts(tg)[0]
+    run([20])
+    assert "offline (10 min)" in texts(tg)[0]
 
 
 def test_switched_off_types_are_not_checked(settings: Settings, set_env, tg: FakeTelegram) -> None:
@@ -68,10 +68,10 @@ def test_switched_off_types_are_not_checked(settings: Settings, set_env, tg: Fak
     check_devices(now=T0, probe=seen.append)
     assert seen == [] and texts(tg) == []
     set_env(INSTORE="true")
-    run([0, 5])
+    run([0, 10])
     msg = texts(tg)[0]
     head, ask = msg.split("\n\n")
-    assert head == "<b>Galaxy in-store Jetson is offline (5 min)</b>"
+    assert head == "<b>Galaxy in-store Jetson is offline (10 min)</b>"
     assert ask == "@Nikhil_mirajkar @Royjpr please help bring it back online."
     assert [d.key for d in DEVICES] == ["phone", "jetson"]
 
@@ -88,7 +88,7 @@ def test_reachable() -> None:
 
 def test_alerts_go_to_alert_chat_when_set(settings: Settings, set_env, tg: FakeTelegram) -> None:
     set_env(TG_CHAT="-1", ALERT_CHAT="-4650652548", INSTORE="false")
-    run([0, 5])
+    run([0, 10])
     assert [p["chat_id"] for m, p in tg.calls] == ["-4650652548"]
 
 
@@ -115,15 +115,15 @@ def llm(monkeypatch: pytest.MonkeyPatch) -> list:
 
 def test_done_reply_then_back_online_thanks_latest(settings: Settings, set_env, tg: FakeTelegram, llm: list) -> None:
     set_env(TG_CHAT="-1", INSTORE="false")
-    run([0, 5])  # alert 101
+    run([0, 10])  # alert 101
     tg.results["getUpdates"] = [
-        msg(1, "Done", "Royjpr", 8, 101, at=6),
-        msg(2, "ok checking", "Nikhil_mirajkar", 7, 101, at=7),
-        msg(3, "done", "some_bot", 9, 101, at=7, is_bot=True),
-        msg(4, "Thanks", "haripratap", 11, 999, at=7),
-        msg(5, "ho gaya", None, 12, 101, at=8),
+        msg(1, "Done", "Royjpr", 8, 101, at=11),
+        msg(2, "ok checking", "Nikhil_mirajkar", 7, 101, at=11),
+        msg(3, "done", "some_bot", 9, 101, at=11, is_bot=True),
+        msg(4, "Thanks", "haripratap", 11, 999, at=11),
+        msg(5, "ho gaya", None, 12, 101, at=11),
     ]
-    run([9, 10])
+    run([11, 11.5])
     assert llm == ["Done", "ok checking", "ho gaya"]  # each reply asked once, bots and other threads skipped
     run([12], up=True)
     assert texts(tg)[-1] == (
@@ -134,7 +134,7 @@ def test_done_reply_then_back_online_thanks_latest(settings: Settings, set_env, 
 
 def test_still_offline_5_min_after_done_and_reminder_paused(settings: Settings, set_env, tg, llm: list) -> None:
     set_env(TG_CHAT="-1", INSTORE="false")
-    run([0, 5])  # alert 101
+    run([0, 10])  # alert 101
     tg.results["getUpdates"] = [msg(1, "Done", "Nikhil_mirajkar", 7, 101, at=22)]
     run(range(22, 27))
     assert len(texts(tg)) == 1  # under 5 min since the Done
@@ -154,8 +154,8 @@ def test_still_offline_5_min_after_done_and_reminder_paused(settings: Settings, 
 
 def test_model_down_sends_plain_lines(settings: Settings, set_env, tg: FakeTelegram, llm: list) -> None:
     set_env(TG_CHAT="-1", INSTORE="false")
-    run([0, 5])
-    tg.results["getUpdates"] = [msg(1, "boom", "Nikhil_mirajkar", 7, 101, at=6)]
-    run(range(6, 20))
+    run([0, 10])
+    tg.results["getUpdates"] = [msg(1, "boom", "Nikhil_mirajkar", 7, 101, at=11)]
+    run(range(11, 20))
     run([20], up=True)
     assert texts(tg)[-1] == "✅ Galaxy store phone is back online (was down 20 min)."
