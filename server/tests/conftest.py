@@ -42,6 +42,7 @@ ENV_VARS = (
     "ALERT_CHAT",
     "LLM_URL",
     "LLM_MODEL",
+    "UPLOADER_BEAT",
 )
 TOKEN = "123:abc"
 
